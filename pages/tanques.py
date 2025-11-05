@@ -139,7 +139,7 @@ with l4c1:
                           labels={'MATERIAL': 'Material', 'Quantidade': 'Quantidade de Equipamentos'},
                           color='MATERIAL', color_discrete_sequence=px.colors.qualitative.Set2)
         fig_material.update_layout(
-            xaxis={'categoryorder': 'total descending', 'tickangle': 0})
+            xaxis={'categoryorder': 'total descending', 'tickangle': 45})
         st.plotly_chart(fig_material)
 
 
