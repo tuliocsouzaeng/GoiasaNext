@@ -127,7 +127,7 @@ with l3c1:
                           labels={'CRITICIDADE': 'Criticidade', 'Quantidade': 'Quantidade de Equipamentos'},
                           color='CRITICIDADE', color_discrete_sequence=px.colors.qualitative.Set3)
         fig_criticidade.update_layout(
-            xaxis={'categoryorder': 'total descending', 'tickangle': 0})
+            xaxis={'categoryorder': 'total descending', 'tickangle': 45})
         st.plotly_chart(fig_criticidade)
 
 # Linha 4
@@ -135,7 +135,7 @@ with l4c1:
     if not tanques_filtrados.empty and 'MATERIAL' in tanques_filtrados.columns:
         # Gráfico de barras para Criticidade
         fig_material = px.bar(material_count, x='MATERIAL', y='Quantidade',
-                          title="Distribuição de Equipamentos por Criticidade",
+                          title="Distribuição de Equipamentos por Material",
                           labels={'MATERIAL': 'Material', 'Quantidade': 'Quantidade de Equipamentos'},
                           color='MATERIAL', color_discrete_sequence=px.colors.qualitative.Set2)
         fig_material.update_layout(
