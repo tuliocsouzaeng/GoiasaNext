@@ -11,8 +11,13 @@ if not st.session_state.get("authenticated", False):
 # Dados
 vasos_de_pressao = pd.read_csv("data/vasos_de_pressao.csv", sep=";", encoding='utf-8')
 
-vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (EXTERNA) '] = pd.to_datetime(vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (EXTERNA) '], errors='coerce')
-vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (INTERNA) '] = pd.to_datetime(vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (INTERNA) '], errors='coerce')
+vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (EXTERNA)'] = pd.to_datetime(
+    vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (EXTERNA)'], format="%d/%m/%Y"
+)
+
+vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (INTERNA)'] = pd.to_datetime(
+    vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (INTERNA)'], format="%d/%m/%Y"
+)
 
 # Seção expansível para filtros
 with st.expander("Abrir Filtros"):
@@ -42,8 +47,8 @@ if equipamento_selecionado:
     dados_filtrados = dados_filtrados[dados_filtrados["TAG"].isin(equipamento_selecionado)]
 if data_selecionada:
     dados_filtrados = dados_filtrados[
-    (dados_filtrados['DATA PRÓXIMA INSPEÇÃO (EXTERNA) '] <= data_selecionada) |
-    (dados_filtrados['DATA PRÓXIMA INSPEÇÃO (INTERNA) '] <= data_selecionada)
+    (dados_filtrados['DATA PRÓXIMA INSPEÇÃO (EXTERNA)'] <= data_selecionada) |
+    (dados_filtrados['DATA PRÓXIMA INSPEÇÃO (INTERNA)'] <= data_selecionada)
 ]
 
 # Calcular o percentual de equipamentos filtrados em relação ao total
@@ -107,8 +112,8 @@ setor_count.columns = ['SETOR', 'Quantidade']
 # Identificar inspeções vencidas
 data_atual = pd.to_datetime(datetime.now().date())  # Converter para datetime64[ns] com apenas a data
 inspecoes_vencidas = dados_filtrados[
-    ((dados_filtrados['DATA PRÓXIMA INSPEÇÃO (EXTERNA) '].notna()) & (dados_filtrados['DATA PRÓXIMA INSPEÇÃO (EXTERNA) '] < data_atual)) |
-    ((dados_filtrados['DATA PRÓXIMA INSPEÇÃO (INTERNA) '].notna()) & (dados_filtrados['DATA PRÓXIMA INSPEÇÃO (INTERNA) '] < data_atual))
+    ((dados_filtrados['DATA PRÓXIMA INSPEÇÃO (EXTERNA)'].notna()) & (dados_filtrados['DATA PRÓXIMA INSPEÇÃO (EXTERNA)'] < data_atual)) |
+    ((dados_filtrados['DATA PRÓXIMA INSPEÇÃO (INTERNA)'].notna()) & (dados_filtrados['DATA PRÓXIMA INSPEÇÃO (INTERNA)'] < data_atual))
 ]
 num_inspecoes_vencidas = inspecoes_vencidas.shape[0]
 

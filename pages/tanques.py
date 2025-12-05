@@ -9,8 +9,6 @@ if not st.session_state.get("authenticated", False):
     st.warning("Você precisa fazer login para acessar esta página.")
     st.switch_page("index.py")  # Redireciona para a tela de login
 
-
-
 # _________________________ Importação dos Dados ______________________________
 
 tanques = pd.read_csv("data/tanques.csv", sep=";", encoding='utf-8')
@@ -127,7 +125,7 @@ with l3c1:
                           labels={'CRITICIDADE': 'Criticidade', 'Quantidade': 'Quantidade de Equipamentos'},
                           color='CRITICIDADE', color_discrete_sequence=px.colors.qualitative.Set3)
         fig_criticidade.update_layout(
-            xaxis={'categoryorder': 'total descending', 'tickangle': 45})
+            xaxis={'categoryorder': 'total descending', 'tickangle': 0})
         st.plotly_chart(fig_criticidade)
 
 # Linha 4
@@ -141,7 +139,6 @@ with l4c1:
         fig_material.update_layout(
             xaxis={'categoryorder': 'total descending', 'tickangle': 45})
         st.plotly_chart(fig_material)
-
 
 # Linha 5
 with l5c1:
