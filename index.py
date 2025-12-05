@@ -18,7 +18,12 @@ else:
         st.Page("pages/home.py", title="Página Inicial"),
         st.Page("pages/tanques.py", title="Tanques"),
         st.Page("pages/vasos_de_pressao.py", title="Vasos de Pressão"),
+        st.Page("pages/valvulas_de_seguranca.py", title="Válvulas de Segurança"),
         st.Page("pages/tubulacoes.py", title="Tubulações"),
-        st.Page("pages/logout.py", title="Sair"),
+        st.Page("pages/torres_de_resfriamento.py", title="Torres de Resfriamento"),
+        st.Page("pages/motores.py", title="Motores de Baixa Tensão"),
+        #st.Page("pages/niveis_de_abordagem.py", title="Níveis de Abordagem"),
+        st.Page("pages/logout.py", title="Sair")
     ])
+
     pg.run()
