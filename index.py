@@ -3,7 +3,7 @@ import streamlit as st
 from login import show_login
 # Configuração da página
 st.set_page_config(page_title="Goiasa Next", layout="wide")
-st.write("Versão do Streamlit:", st.__version__)
+
 # Verifica se o usuário está autenticado
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
@@ -11,6 +11,7 @@ if "authenticated" not in st.session_state:
 pages = {
     "Menu":[
         st.Page("pages/home.py", title="Página Inicial"),
+        st.Page("pages/logout.py", title="Sair"),
     ],
     "Estáticos": [
         st.Page("pages/tanques.py", title="Tanques"),
@@ -22,9 +23,6 @@ pages = {
     "Elétricos":[
         st.Page("pages/motores.py", title="Motores de Baixa Tensão"),
     ],
-    "Sair":[
-        st.Page("pages/logout.py", title="Sair"),
-    ]
 }
 
 # Se NÃO estiver logado → mostra tela de login
