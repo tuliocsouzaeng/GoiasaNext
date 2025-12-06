@@ -32,5 +32,5 @@ if not st.session_state["authenticated"]:
     show_login()
 else:
     # Se estiver logado → mostra navegação
-    pg = st.navigation([pages])
+    pg = st.navigation(pages)
     pg.run()
