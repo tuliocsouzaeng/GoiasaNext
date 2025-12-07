@@ -1,4 +1,4 @@
-import streamlit as st
+uimport streamlit as st
 import pandas as pd
 from datetime import datetime
 import plotly.express as px
@@ -10,7 +10,7 @@ if not st.session_state.get("authenticated", False):
 
 st.title("Goiasa Next")
 nome = st.session_state.get("nome", st.session_state.get("username", "Usuário")).title()
-st.write(f"{nome}, bem-vindo ao sistema de Gestão de Siderúrgicos da usina Goiasa!")
+st.write(f"{nome}, bem-vindo ao sistema de Gestão de Equipamentos da usina Goiasa!")
 
 with st.expander("Como usar o sistema"):
     st.write("- Navegue pelas seções na barra lateral.")
