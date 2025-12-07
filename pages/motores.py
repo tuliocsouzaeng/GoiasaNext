@@ -14,7 +14,7 @@ if not st.session_state.get("authenticated", False):
 # _________________________ Importação dos Dados ______________________________
 
 #motores = pd.read_csv("data/motores.csv", sep=";", encoding='utf-8')
-motores = load_csv("data/motores.csv", sep=";", encoding='utf-8')
+motores = load_csv("data/motores.csv.enc", sep=";", encoding='utf-8')
 
 # _________________________ Aplicação de Filtros _____________________________
 
