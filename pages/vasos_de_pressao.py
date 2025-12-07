@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import plotly.express as px
+from utils.data_loader import load_csv
 
 if not st.session_state.get("authenticated", False):
     st.warning("Você precisa fazer login para acessar esta página.")
@@ -9,7 +10,8 @@ if not st.session_state.get("authenticated", False):
 
     
 # Dados
-vasos_de_pressao = pd.read_csv("data/vasos_de_pressao.csv", sep=";", encoding='utf-8')
+#vasos_de_pressao = pd.read_csv("data/vasos_de_pressao.csv", sep=";", encoding='utf-8')
+vasos_de_pressao = load_csv("data/vasos_de_pressao.csv.enc", sep=";", encoding='utf-8')
 
 vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (EXTERNA)'] = pd.to_datetime(
     vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (EXTERNA)'], format="%d/%m/%Y"
