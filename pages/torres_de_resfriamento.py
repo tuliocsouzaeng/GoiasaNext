@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import plotly.express as px
+from utils.data_loader import load_csv
 
 if not st.session_state.get("authenticated", False):
     st.warning("Você precisa fazer login para acessar esta página.")
@@ -10,8 +11,8 @@ if not st.session_state.get("authenticated", False):
     
 # _________________________ Importação dos Dados ______________________________
 
-torres_de_resfriamento = pd.read_csv("data/torres_de_resfriamento.csv", sep=";", encoding='utf-8')
-
+#torres_de_resfriamento = pd.read_csv("data/torres_de_resfriamento.csv", sep=";", encoding='utf-8')
+torres_de_resfriamento = load_csv("data/torres_de_resfriamento.csv.enc", sep=";", encoding='utf-8')
 
 # _________________________ Aplicação de Filtros _____________________________
 # Seção expansível para filtros
