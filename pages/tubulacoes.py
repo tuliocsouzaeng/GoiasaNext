@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import plotly.express as px
+from utils.data_loader import load_csv
 
 # _________________________ Checa se login foi feito ______________________________
 
@@ -15,7 +16,9 @@ if not st.session_state.get("authenticated", False):
 
 # _________________________ Importação dos Dados ______________________________
 
-tubulacoes = pd.read_csv("data/tubulacoes.csv", sep=";", encoding='utf-8')
+#tubulacoes = pd.read_csv("data/tubulacoes.csv", sep=";", encoding='utf-8')
+tubulacoes = load_csv("data/tubulacoes.csv.enc", sep=";", encoding='utf-8')
+
 
 
 # _________________________ Tratamento dos Dados ______________________________
