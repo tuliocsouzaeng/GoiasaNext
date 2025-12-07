@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import plotly.express as px
+from utils.data_loader import load_csv
 
 # _________________________ Checa se login foi feito ______________________________
 
@@ -12,7 +13,8 @@ if not st.session_state.get("authenticated", False):
 
 # _________________________ Importação dos Dados ______________________________
 
-valvulas_seg = pd.read_csv("data/valvulas_de_seguranca.csv", sep=";", encoding='utf-8')
+#valvulas_seg = pd.read_csv("data/valvulas_de_seguranca.csv", sep=";", encoding='utf-8')
+valvulas_seg = load_csv("data/valvulas_de_seguranca.csv.enc", sep=";", encoding='utf-8')
 
 # _________________________ Aplicação de Filtros _____________________________
 
