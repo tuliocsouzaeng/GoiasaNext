@@ -76,7 +76,7 @@ anofab_count['ANO FABR.'] = anofab_count['ANO FABR.'].astype("string").fillna("D
 
 
 # _________________ Criação da Página ___________________________
-st.title("turbinas")
+st.title("Turbinas")
 
 # Linha 1
 l1c1, l1c2 = st.columns(2)
