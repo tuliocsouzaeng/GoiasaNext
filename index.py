@@ -30,6 +30,8 @@ pages = {
     ],
     "Elétricos":[
         st.Page("pages/motores.py", title="Motores de Baixa Tensão"),
+    ],
+    "Instrumentação":[
         st.Page("pages/transmissores.py", title="Transmissores"),
     ],
 }
