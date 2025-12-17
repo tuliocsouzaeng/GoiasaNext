@@ -20,6 +20,14 @@ pages = {
         st.Page("pages/tubulacoes.py", title="Tubulações"),
         st.Page("pages/torres_de_resfriamento.py", title="Torres de Resfriamento"),
     ],
+    "Dinâmicos":[
+        st.Page("pages/bombas.py", title="Bombas"),
+        st.Page("pages/redutores.py", title="Redutores"),
+        st.Page("pages/turbinas.py", title="Turbinas"),
+        st.Page("pages/acoplamentos.py", title="Acoplamentos"),
+        st.Page("pages/castelos.py", title="Castelos"),
+        st.Page("pages/unidades_hidraulicas.py", title="Unidades Hidráulicas"),
+    ],
     "Elétricos":[
         st.Page("pages/motores.py", title="Motores de Baixa Tensão"),
         st.Page("pages/transmissores.py", title="Transmissores"),
