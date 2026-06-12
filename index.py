@@ -13,6 +13,9 @@ pages = {
         st.Page("pages/home.py", title="Página Inicial"),
         st.Page("pages/logout.py", title="Sair"),
     ],
+    "Indicadores":[
+        st.Page("pages/indicadores_manutencao.py", title="Indicadores da Manutenção"),
+    ],
     "Estáticos": [
         st.Page("pages/tanques.py", title="Tanques"),
         st.Page("pages/vasos_de_pressao.py", title="Vasos de Pressão"),
