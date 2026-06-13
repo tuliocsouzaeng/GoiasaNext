@@ -45,17 +45,6 @@ ordens_servico = carregar_dados()
 
 
 
-# CONVERSÃO DA DATA: Transforma o texto '09/06/2026' em uma data que o Python entende
-ordens_servico["DATA_CONVERTIDA"] = pd.to_datetime(
-    ordens_servico["DATA"],
-    format="%d/%m/%Y",
-    errors="coerce"
-)
-ordens_servico = ordens_servico.dropna(
-    subset=["DATA_CONVERTIDA"]
-)
-
-
 # _________________________ Aplicação de Filtros _____________________________
 
 # Ajuste os nomes das equipes ('Equipe A', 'Equipe B', etc.) para os nomes exatos que estão no seu CSV
