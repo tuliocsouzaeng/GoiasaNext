@@ -20,25 +20,29 @@ if not st.session_state.get("authenticated", False):
 
 # ordens_servico = pd.read_csv("data/Ordens_Servico_2026.csv", sep=";", encoding='utf-8')
 
-GOOGLE_REDE_CREDS = os.getenv("GOOGLE_REDE_CREDS")
+@st.cache_resource
+def get_gspread_client():
+    GOOGLE_REDE_CREDS = os.getenv("GOOGLE_REDE_CREDS")
+    if isinstance(GOOGLE_REDE_CREDS, str):
+        info_autenticacao = json.loads(GOOGLE_REDE_CREDS)
+    else:
+        info_autenticacao = GOOGLE_REDE_CREDS
+    return gspread.service_account_from_dict(info_autenticacao)
 
-# 1. Recupera o conteúdo da variável de ambiente
-origem_creds = GOOGLE_REDE_CREDS
 
-# 2. O PULO DO GATO: Se vier como texto (str), converte. Se já for dict, usa direto!
-if isinstance(origem_creds, str):
-    info_autenticacao = json.loads(origem_creds)
-else:
-    info_autenticacao = origem_creds
+@st.cache_data(ttl=300)
+def carregar_dados():
+    gc = get_gspread_client()
+    planilha = gc.open("Ordens_Servico")
+    aba = planilha.worksheet("Ordens_Servico")
+    df = pd.DataFrame(aba.get_all_records())
+    df["DATA_CONVERTIDA"] = pd.to_datetime(df["DATA"], format="%d/%m/%Y", errors="coerce")
+    df = df.dropna(subset=["DATA_CONVERTIDA"])
+    return df
+	
+ordens_servico = carregar_dados()
 
-# 3. Autentica no Google usando os dados tratados
-gc = gspread.service_account_from_dict(info_autenticacao)
 
-# 4. Abre a planilha e puxa os dados para o dataframe 'eq'
-planilha = gc.open("Ordens_Servico")
-aba = planilha.worksheet("Ordens_Servico")
-
-ordens_servico = pd.DataFrame(aba.get_all_records())
 
 
 # CONVERSÃO DA DATA: Transforma o texto '09/06/2026' em uma data que o Python entende
