@@ -2,7 +2,9 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import plotly.express as px
-from utils.data_loader import load_csv
+import os
+import json
+import gspread
 
 if not st.session_state.get("authenticated", False):
     st.warning("Você precisa fazer login para acessar esta página.")
@@ -10,16 +12,62 @@ if not st.session_state.get("authenticated", False):
 
     
 # Dados
-#vasos_de_pressao = pd.read_csv("data/vasos_de_pressao.csv", sep=";", encoding='utf-8')
-vasos_de_pressao = load_csv("data/vasos_de_pressao.csv.enc", sep=";", encoding='utf-8')
+GOOGLE_REDE_CREDS = os.getenv("GOOGLE_REDE_CREDS")
 
-vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (EXTERNA)'] = pd.to_datetime(
-    vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (EXTERNA)'], format="%d/%m/%Y"
-)
+@st.cache_resource
+def conectar_google():
 
-vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (INTERNA)'] = pd.to_datetime(
-    vasos_de_pressao['DATA PRÓXIMA INSPEÇÃO (INTERNA)'], format="%d/%m/%Y"
-)
+    origem_creds = GOOGLE_REDE_CREDS
+
+    if isinstance(origem_creds, str):
+        info_autenticacao = json.loads(origem_creds)
+    else:
+        info_autenticacao = origem_creds
+
+    return gspread.service_account_from_dict(
+        info_autenticacao
+    )
+
+
+@st.cache_data(ttl=300)
+def carregar_vasos():
+
+    gc = conectar_google()
+
+    planilha = gc.open_by_key(
+        "1rwuLLMSyn2m6FCno1Zia7R67ZxIFhYN9E-R5Le9iGow"
+    )
+
+    aba = planilha.worksheet(
+        "Vasos_de_Pressao"
+    )
+
+    df = pd.DataFrame(
+        aba.get_all_records()
+    )
+
+    df['DATA PRÓXIMA INSPEÇÃO (EXTERNA)'] = pd.to_datetime(
+        df['DATA PRÓXIMA INSPEÇÃO (EXTERNA)'],
+        format="%d/%m/%Y",
+        errors="coerce"
+    )
+
+    df['DATA PRÓXIMA INSPEÇÃO (INTERNA)'] = pd.to_datetime(
+        df['DATA PRÓXIMA INSPEÇÃO (INTERNA)'],
+        format="%d/%m/%Y",
+        errors="coerce"
+    )
+    df['ANO DE FABRICAÇÃO'] = pd.to_numeric(
+        df['ANO DE FABRICAÇÃO'],
+        errors='coerce'
+    )
+
+    return df
+
+
+vasos_de_pressao = carregar_vasos()
+
+
 
 # Seção expansível para filtros
 with st.expander("Abrir Filtros"):
@@ -29,10 +77,11 @@ with st.expander("Abrir Filtros"):
     categoria_selecionado = st.multiselect("Selecione a Categoria", vasos_de_pressao["CATEGORIA"].dropna().unique().tolist())
     equipamento_selecionado = st.multiselect("Selecione o Equipamento", vasos_de_pressao["TAG"].dropna().unique().tolist())
     data_selecionada = st.date_input("Selecione a Data Máxima de Inspeção", value=None)
+    vasos_de_pressao["SETOR"].dropna().unique().tolist()
+    if st.button("🔄 Atualizar Dados"):
+        st.cache_data.clear()
+        st.rerun()
 
-data_selecionada = pd.to_datetime(data_selecionada)
-# Filtro por SETOR
-#setor_opcoes = vasos_de_pressao["SETOR"].dropna().unique().tolist()
 #setor_selecionado = st.sidebar.multiselect("Selecione o Setor", setor_opcoes, default=setor_opcoes)
 # Aplicar os filtros ao DataFrame
 dados_filtrados = vasos_de_pressao.copy()
