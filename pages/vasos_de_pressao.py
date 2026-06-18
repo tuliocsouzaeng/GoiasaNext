@@ -82,6 +82,11 @@ with st.expander("Abrir Filtros"):
         st.cache_data.clear()
         st.rerun()
 
+# Corrigir o formato de data para comparação
+if data_selecionada:
+    data_selecionada = pd.Timestamp(data selecionada)
+
+
 #setor_selecionado = st.sidebar.multiselect("Selecione o Setor", setor_opcoes, default=setor_opcoes)
 # Aplicar os filtros ao DataFrame
 dados_filtrados = vasos_de_pressao.copy()
