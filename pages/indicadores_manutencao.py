@@ -57,7 +57,7 @@ MAPEAMENTO_OFICINAS = {
 			"Automação": ["AT00", "ZAMI"],
             "Jaboticabal": ["T048", "T039"],
             "KSB": ["KSB", "KSB6"],
-            "Operacão": ["CA00", "EX66", "FB00", "EV66", "EX00", "TRPO", "AR00","ET00", "TC00", "CO00", "DE00", "TE02", "EQFB", "TE19","TRET", "WV", "TBQ1", "FB66", "TC66", "TO39", "MA00","ORCA", "WMM", "CA02", "JECE", "EV00", "TRCO"]}
+            "Operação": ["CA00", "EX66", "FB00", "EV66", "EX00", "TRPO", "AR00","ET00", "TC00", "CO00", "DE00", "TE02", "EQFB", "TE19","TRET", "WV", "TBQ1", "FB66", "TC66", "TO39", "MA00","ORCA", "WMM", "CA02", "JECE", "EV00", "TRCO"]}
 
 MAPEAMENTO_STATUS = {
     0: "Em Andamento",
