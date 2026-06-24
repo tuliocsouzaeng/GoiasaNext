@@ -52,7 +52,7 @@ ordens_servico = carregar_dados()
 MAPEAMENTO_OFICINAS = {   
 			"Caldeiraria": ["CD00", "CD01", "CD66", "CD99", "CS00", "CD66", "CSEG", "JP01"],
 			"Mecânica": ["MM00", "MM66", "TRPM", "CD2", "TE13"],
-			"Elétrica": ["EL00", "EL66", "EP00", "EPRD", "TRPE"],
+			"Elétrica": ["EL00", "EL66", "EP00", "EPRD", "TRPE", "ES00"],
 			"Instrumentação": ["IN00", "IN66", "SI00", "TRPI"],
 			"Automação": ["AT00", "ZAMI"],
             "Jaboticabal": ["T048", "T039"],
