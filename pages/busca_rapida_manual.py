@@ -3,116 +3,97 @@
 pages/busca_manual.py
 ----------------------
 Busca manual, progressiva, sobre o catalogo SAP -- para conferencia
-humana. O usuario digita um termo, o sistema filtra; digita outro, o
-filtro anterior continua valendo e o novo se soma (E logico). Cada
-termo pode ser removido individualmente sem apagar os outros.
+humana. Cada termo digitado no multiselect vira um filtro que se soma
+aos anteriores (E logico); cada um pode ser removido individualmente
+clicando no "x" do proprio chip.
 
 Reaproveita o MESMO catalogo (mesmo cache) da pagina de correlacao
 automatica, via sap_catalog.get_sap_catalog().
+
+Observacao: accept_new_options exige Streamlit >= 1.45 aprox. Se a sua
+versao instalada for anterior a isso, veja o comentario no final do
+arquivo com a alternativa (text_input + chips manuais).
 """
 
 from io import BytesIO
 
-import pandas as pd
+import re
+
 import streamlit as st
 
 from busca_rapida.matching import norm
 from busca_rapida.sap_catalog import get_sap_catalog
 
-# _________________________ Checa se login foi feito ______________________________
+st.set_page_config(page_title="Busca manual - Catálogo SAP", layout="wide")
+st.title("Busca manual no catálogo SAP")
 
-if not st.session_state.get("authenticated", False):
-    st.warning("Você precisa fazer login para acessar esta página.")
-    st.switch_page("index.py")  # Redireciona para a tela de login
-# _____________________________________________________________________________
-
-st.set_page_config(page_title="Busca manual - Catalogo SAP", layout="wide")
-st.title("Busca manual no catalogo SAP")
 st.caption(
     "Digite um termo e aperte Enter para adicionar um filtro. Cada filtro "
     "novo se soma aos anteriores (E logico) -- ex: 'parafuso' + '2\"' mostra "
-    "so os itens que tem as duas coisas na descricao."
+    "so os itens que tem as duas coisas na descrição. Clique no 'x' de um "
+    "filtro para removê-lo sem afetar os demais.\n\n"
+    "Dentro de UM filtro, separe alternativas com vírgula, ';', 'ou' ou '|' "
+    "para um OU -- ex: o filtro `tubo ou tubulacao` acha qualquer um dos "
+    "dois; combinado com outro filtro `P11, P22, 10\"` (que também é um OU "
+    "entre si), o resultado final é (tubo OU tubulação) E (P11 OU P22 OU 10\")."
 )
 
 sap_df = get_sap_catalog()
 
 # --------------------------------------------------------------------------
-# Estado dos filtros (precisa de session_state -- o Streamlit reexecuta o
-# script inteiro a cada interacao, entao sem isso os filtros anteriores
-# se perderiam a cada novo termo digitado).
+# Entrada dos filtros: multiselect com accept_new_options=True funciona como
+# um campo de "tags" -- cada termo novo digitado + Enter vira um chip
+# removivel individualmente, sem precisar simular isso na mao.
 # --------------------------------------------------------------------------
 
-if "filtros_busca_manual" not in st.session_state:
-    st.session_state.filtros_busca_manual = []
-
-
-def _adicionar_filtro():
-    termo = st.session_state.get("_novo_filtro_input", "").strip()
-    if termo and termo not in st.session_state.filtros_busca_manual:
-        st.session_state.filtros_busca_manual.append(termo)
-    st.session_state._novo_filtro_input = ""
-
-
-def _remover_filtro(termo):
-    st.session_state.filtros_busca_manual.remove(termo)
-
-
-def _limpar_filtros():
-    st.session_state.filtros_busca_manual = []
-
-
-# --------------------------------------------------------------------------
-# Entrada de novo termo
-# --------------------------------------------------------------------------
-
-st.text_input(
-    "Novo termo de busca",
-    key="_novo_filtro_input",
-    placeholder='ex: parafuso, 2", A105...',
-    on_change=_adicionar_filtro,
+filtros = st.multiselect(
+    "Termos de busca",
+    options=[],
+    accept_new_options=True,
+    max_selections=8,
+    placeholder='Digite um termo e aperte Enter (ex: parafuso, 2", A105...)',
+    key="filtros_busca_manual",
 )
-
-# --------------------------------------------------------------------------
-# Chips dos filtros ativos (cada um removivel individualmente)
-# --------------------------------------------------------------------------
-
-if st.session_state.filtros_busca_manual:
-    st.write("**Filtros ativos:**")
-    chip_cols = st.columns(len(st.session_state.filtros_busca_manual) + 1)
-    for i, termo in enumerate(st.session_state.filtros_busca_manual):
-        with chip_cols[i]:
-            st.button(
-                f"{termo}  ✕",
-                key=f"chip_{i}_{termo}",
-                on_click=_remover_filtro,
-                args=(termo,),
-                help="Clique para remover este filtro",
-            )
-    with chip_cols[-1]:
-        st.button("Limpar tudo", on_click=_limpar_filtros, type="secondary")
-else:
-    st.info("Nenhum filtro ativo -- digite um termo acima para comecar.")
 
 st.divider()
 
 # --------------------------------------------------------------------------
-# Aplica os filtros (AND) sobre a coluna normalizada (sem acento/maiuscula)
+# Aplica os filtros. Dentro de cada filtro, as alternativas separadas por
+# virgula/;/ou/| formam um OU (regex de alternancia); entre filtros
+# diferentes continua sendo E (cada um filtra o resultado do anterior).
 # --------------------------------------------------------------------------
 
+_SEPARADOR_ALTERNATIVAS = re.compile(r"\s*(?:,|;|\bou\b|\|)\s*", re.IGNORECASE)
+
+
+def _construir_regex_alternativas(termo: str) -> str:
+    alternativas = [a.strip() for a in _SEPARADOR_ALTERNATIVAS.split(termo) if a.strip()]
+    alternativas_norm = [re.escape(norm(a.upper())) for a in alternativas]
+    return "|".join(alternativas_norm)
+
+
 resultado = sap_df
-for termo in st.session_state.filtros_busca_manual:
-    termo_norm = norm(termo.upper())
-    resultado = resultado[resultado["_desc_norm"].str.contains(termo_norm, regex=False, na=False)]
+for termo in filtros:
+    padrao = _construir_regex_alternativas(termo)
+    if padrao:
+        resultado = resultado[resultado["_desc_norm"].str.contains(padrao, regex=True, na=False)]
 
 total = len(resultado)
+
+if not filtros:
+    st.caption(
+        f"Nenhum filtro ativo -- mostrando todo o catalogo ({total:,} "
+        "materiais). Digite um termo acima para restringir.".replace(",", ".")
+    )
+
 st.subheader(f"{total:,} resultado(s)".replace(",", "."))
 
-if total == 0 and st.session_state.filtros_busca_manual:
+if total == 0:
     st.warning("Nenhum material encontrado com esses termos combinados.")
-elif total > 0:
+else:
     LIMITE_EXIBICAO = 500
     exibir = resultado[["codigo", "descricao"]].rename(
-        columns={"codigo": "Código", "descricao": "Descrição"}
+        columns={"codigo": "Codigo", "descricao": "Descricao"}
     )
 
     if total > LIMITE_EXIBICAO:
@@ -141,7 +122,6 @@ elif total > 0:
         st.code(str(linha["Codigo"]), language=None)
         st.write(linha["Descricao"])
 
-    # Download do resultado completo (nao so o que esta na tela)
     buffer = BytesIO()
     resultado[["codigo", "descricao"]].rename(
         columns={"codigo": "Codigo", "descricao": "Descricao"}
@@ -152,3 +132,12 @@ elif total > 0:
         file_name="busca_manual_sap.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+# --------------------------------------------------------------------------
+# Alternativa caso sua versao do Streamlit seja anterior a accept_new_options
+# (aprox. < 1.45): trocar o bloco do multiselect acima por um text_input +
+# lista em session_state, adicionando um termo por vez com on_change e
+# removendo individualmente com um st.button por chip. Essa foi a versao
+# original desta pagina antes desta atualizacao -- me avise se precisar
+# dela de volta.
+# --------------------------------------------------------------------------
