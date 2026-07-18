@@ -40,6 +40,7 @@ pages = {
     ],
     "Busca Rápida":[
         st.Page("pages/busca_rapida_automatica.py", title="Busca Rápida Automática"),
+        st.Page("pages/busca_rapida_manual.py", title="Busca Rápida Manual"),
     ],
 }
 
