@@ -19,7 +19,7 @@ pages = {
     ],
     "Busca Rápida":[
         st.page("pages/busca_rapida_automatica.py"),
-    ]
+    ],
     "Estáticos": [
         st.Page("pages/tanques.py", title="Tanques"),
         st.Page("pages/vasos_de_pressao.py", title="Vasos de Pressão"),
