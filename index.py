@@ -18,7 +18,7 @@ pages = {
         st.Page("pages/indicadores_projetos.py", title="Indicadores dos Projetos"),
     ],
     "Busca Rápida":[
-        st.page("pages/busca_rapida_automatica.py"),
+        st.Page("pages/busca_rapida_automatica.py"),
     ],
     "Estáticos": [
         st.Page("pages/tanques.py", title="Tanques"),
