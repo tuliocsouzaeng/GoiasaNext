@@ -12,7 +12,7 @@ navegue entre paginas diferentes.
 """
 
 import streamlit as st
-    
+import os
 from busca_rapida.sap_loader_gsheets import load_sap_catalog_from_sheets
 # from sap_loader_drive_xlsx import load_sap_catalog_from_drive_xlsx  # alternativa
 
