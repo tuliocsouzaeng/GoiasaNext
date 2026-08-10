@@ -159,6 +159,12 @@ def classificar_revisao(rev):
 
 documentos_projetos["Classe Revisão"] = documentos_projetos["Revisão"].apply(classificar_revisao)
 
+# --- Garante que colunas numéricas vindas do gspread estejam com tipo correto ---
+# get_all_records() pode retornar valores mistos (str + int) dependendo do conteúdo da célula.
+documentos_projetos["Avanço Físico %"] = pd.to_numeric(
+    documentos_projetos["Avanço Físico %"], errors="coerce"
+).fillna(0)
+
 
 # ========================================================================================
 # 4. FILTROS
