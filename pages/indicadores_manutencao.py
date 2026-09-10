@@ -67,6 +67,7 @@ MAPEAMENTO_OFICINAS = {
    "Automação": ["AT00", "ZAMI"],
    "Jaboticabal": ["T048", "T039"],
    "KSB": ["KSB", "KSB6"],
+	"Civil": ["CPC", "CPH", "CPP"],
    "Operação": ["CA00", "CA66", "EX66", "FB00", "EV66", "EX00", "TRPO", "AR00","ET00", "TC00", "CO00", "CO66", "DE00", "TE02", "EQFB", "TE19", "TRET", "WV", "TBQ1", "FB66", "TC66", "TO39", "TO86", "MA00", "WMM",  "CA02", "JECE", "EV00", "CBI", "TRCO"]}
 
  
