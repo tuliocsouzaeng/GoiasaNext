@@ -110,21 +110,39 @@ def classificar_localizacao(valor):
 
 # Seção expansível para filtros
 with st.expander("Abrir Filtros"):
-    #setor_selecionado = st.multiselect("Selecione o Setor", turbinas["SETOR"].dropna().unique().tolist()) # Devera ser feito utilizando a localizacao
-    TAG_selecionada = st.multiselect("Selecione a TAG", ordens_servico["EQUIPAMENTO"].dropna().unique().tolist())
-    atividade_selecionada = st.multiselect("Selecione o tipo de atividade", ordens_servico["ATIVIDADE"].dropna().unique().tolist())
-    equipe_selecionada = st.multiselect("Selecione a Equipe", ordens_servico["DESCRIÇÃO EQUIPE"].dropna().unique().tolist())
-    oficina_selecionada = st.multiselect("Selecione a Oficina", list(MAPEAMENTO_OFICINAS.keys()))
-    status_selecionado = st.multiselect("Selecione o Status", list(MAPEAMENTO_STATUS.values()))
-	localizacao_selecionada = st.multiselect("Selecione a Localização",list(LOCALIZACOES.values()) + ["Outros"])
-    periodo = st.date_input(
-    "Período",
-    value=(
-        #ordens_servico["DATA_CONVERTIDA"].min().date(),
-        pd.Timestamp("2026-04-01").date(),  # Data inicial fixa
-        ordens_servico["DATA_CONVERTIDA"].max().date()
+    # setor_selecionado = st.multiselect("Selecione o Setor", turbinas["SETOR"].dropna().unique().tolist()) # Devera ser feito utilizando a localizacao
+    TAG_selecionada = st.multiselect(
+        "Selecione a TAG",
+        ordens_servico["EQUIPAMENTO"].dropna().unique().tolist(),
     )
-)
+    atividade_selecionada = st.multiselect(
+        "Selecione o tipo de atividade",
+        ordens_servico["ATIVIDADE"].dropna().unique().tolist(),
+    )
+    equipe_selecionada = st.multiselect(
+        "Selecione a Equipe",
+        ordens_servico["DESCRIÇÃO EQUIPE"].dropna().unique().tolist(),
+    )
+    oficina_selecionada = st.multiselect(
+        "Selecione a Oficina", list(MAPEAMENTO_OFICINAS.keys())
+    )
+    status_selecionado = st.multiselect(
+        "Selecione o Status", list(MAPEAMENTO_STATUS.values())
+    )
+    localizacao_selecionada = st.multiselect(
+        "Selecione a Localização", list(LOCALIZACOES.values()) + ["Outros"]
+    )
+    periodo = st.date_input(
+        "Período",
+        value=(
+            # ordens_servico["DATA_CONVERTIDA"].min().date(),
+            pd.Timestamp("2026-04-01").date(),  # Data inicial fixa
+            ordens_servico["DATA_CONVERTIDA"].max().date(),
+        ),
+    )
+
+
+
 
 if len(periodo) == 2:
     data_inicial, data_final = periodo
