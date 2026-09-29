@@ -116,6 +116,7 @@ with st.expander("Abrir Filtros"):
     equipe_selecionada = st.multiselect("Selecione a Equipe", ordens_servico["DESCRIÇÃO EQUIPE"].dropna().unique().tolist())
     oficina_selecionada = st.multiselect("Selecione a Oficina", list(MAPEAMENTO_OFICINAS.keys()))
     status_selecionado = st.multiselect("Selecione o Status", list(MAPEAMENTO_STATUS.values()))
+	localizacao_selecionada = st.multiselect("Selecione a Localização",list(LOCALIZACOES.values()) + ["Outros"])
     periodo = st.date_input(
     "Período",
     value=(
@@ -123,7 +124,6 @@ with st.expander("Abrir Filtros"):
         pd.Timestamp("2026-04-01").date(),  # Data inicial fixa
         ordens_servico["DATA_CONVERTIDA"].max().date()
     )
-	localizacao_selecionada = st.multiselect("Selecione a Localização",list(LOCALIZACOES.values()) + ["Outros"])
 )
 
 if len(periodo) == 2:
