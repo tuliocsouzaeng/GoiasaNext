@@ -417,6 +417,9 @@ l6c1 = st.columns(1)[0]
 # Linha 7
 l7c1 = st.columns(1)[0]
 
+# Linha 8
+l8c1 = st.columns(1)[0]
+
 # __________________ Visualização das Informações ______________
 
 # Início Linha 1
@@ -651,8 +654,26 @@ with l6c1:
             fig,
             use_container_width=True
         )
-
 with l7c1:
+    localizacao_count = (
+        ordens_servico_filtradas["LOCALIZACAO_NOME"]
+        .value_counts()
+        .reset_index()
+    )
+
+    localizacao_count.columns = ["Localização", "Quantidade"]
+
+    fig = px.bar(
+        localizacao_count,
+        x="Localização",
+        y="Quantidade",
+        title="Ordens por Localização"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+with l8c1:
     with st.expander("Mais Detalhes"):
         st.subheader("Detalhes dos Equipamentos Filtrados")
         st.dataframe(ordens_servico_filtradas, height=400)
