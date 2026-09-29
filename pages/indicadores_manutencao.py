@@ -42,7 +42,7 @@ def carregar_dados():
 	
 ordens_servico = carregar_dados()
 
-
+ordens_servico["LOCALIZACAO_NOME"] = ordens_servico["LOCALIZAÇÃO"].apply(classificar_localizacao)
 
 
 # _________________________ Aplicação de Filtros _____________________________
@@ -83,6 +83,31 @@ MAPEAMENTO_STATUS = {
     9: "Encerrada"
 }
 
+LOCALIZACOES = {
+    "01.N.010": "Entrada de Cana",
+    "01.N.020": "Processamento de Cana",
+    "01.N.030": "Tratamento de Caldo",
+    "01.N.040": "Fábrica de Açúcar",
+    "01.N.050": "Armazenamento de Açúcar",
+    "01.N.060": "Armaz. Carreg. Etanol",
+    "01.N.080": "Cogeração",
+    "01.N.090": "Utilidades",
+    "01.N.100": "Sistemas Emergencia",
+    "01.N.110": "Lab. Industrial",
+    "01.N.120": "Manut. Industrial",
+    "01.N.130": "Almox. Industrial",
+    "01.N.140": "Adm. Industrial",
+}
+
+
+def classificar_localizacao(valor):
+    texto = str(valor).strip()
+    for prefixo, nome in LOCALIZACOES.items():
+        if texto.startswith(prefixo):
+            return nome
+    return "Outros"
+
+
 # Seção expansível para filtros
 with st.expander("Abrir Filtros"):
     #setor_selecionado = st.multiselect("Selecione o Setor", turbinas["SETOR"].dropna().unique().tolist()) # Devera ser feito utilizando a localizacao
@@ -98,6 +123,7 @@ with st.expander("Abrir Filtros"):
         pd.Timestamp("2026-04-01").date(),  # Data inicial fixa
         ordens_servico["DATA_CONVERTIDA"].max().date()
     )
+	localizacao_selecionada = st.multiselect("Selecione a Localização",list(LOCALIZACOES.values()) + ["Outros"])
 )
 
 if len(periodo) == 2:
@@ -129,7 +155,10 @@ if oficina_selecionada:
     ordens_servico_filtradas = ordens_servico_filtradas[
         ordens_servico_filtradas["EQUIPE"].isin(equipes_oficinas)
     ]
-
+if localizacao_selecionada:
+    ordens_servico_filtradas = ordens_servico_filtradas[
+        ordens_servico_filtradas["LOCALIZACAO_NOME"].isin(localizacao_selecionada)
+	]
 if status_selecionado:
 
     codigos_status = [
