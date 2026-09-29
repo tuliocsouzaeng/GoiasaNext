@@ -42,7 +42,6 @@ def carregar_dados():
 	
 ordens_servico = carregar_dados()
 
-ordens_servico["LOCALIZACAO_NOME"] = ordens_servico["LOCALIZAÇÃO"].apply(classificar_localizacao)
 
 
 # _________________________ Aplicação de Filtros _____________________________
@@ -106,6 +105,8 @@ def classificar_localizacao(valor):
         if texto.startswith(prefixo):
             return nome
     return "Outros"
+
+ordens_servico["LOCALIZACAO_NOME"] = ordens_servico["LOCALIZAÇÃO"].apply(classificar_localizacao)
 
 
 # Seção expansível para filtros
