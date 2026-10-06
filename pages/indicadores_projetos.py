@@ -250,7 +250,23 @@ total_alto_retrabalho = df[df["Revisão"] >= 3].shape[0]
 
 
 # ========================================================================================
-# 6. LAYOUT DA PÁGINA — INDICADORES E GRÁFICOS
+# 6. PALETA DE CORES (usada em todos os gráficos de status)
+# ========================================================================================
+# Cores bem distintas entre si, principalmente REVISÃO, REVISÃO FINAL e APROVAÇÃO 01.
+
+cor_status = {
+    "CERTIFICADO":   "#2ecc71",  # verde
+    "APROVAÇÃO 01":  "#1f4e9c",  # azul escuro
+    "REVISÃO FINAL": "#00bcd4",  # ciano
+    "REVISÃO":       "#ff9800",  # laranja
+    "EMISSÃO FINAL": "#9b59b6",  # roxo
+    "CANCELADO":     "#e74c3c",  # vermelho
+    "NÃO SE APLICA": "#95a5a6",  # cinza
+}
+
+
+# ========================================================================================
+# 7. LAYOUT DA PÁGINA — INDICADORES E GRÁFICOS
 # ========================================================================================
 
 # st.title("📋 Gestão de Documentos de Projetos")
@@ -323,16 +339,6 @@ with col_a:
         .reset_index(name="Quantidade")
         .sort_values("Quantidade", ascending=False)
     )
-    # Paleta de cores por status para facilitar leitura rápida
-    cor_status = {
-        "CERTIFICADO": "#2ecc71",
-        "APROVAÇÃO 01": "#3498db",
-        "REVISÃO FINAL": "#f39c12",
-        "REVISÃO": "#e67e22",
-        "EMISSÃO FINAL": "#9b59b6",
-        "CANCELADO": "#e74c3c",
-        "NÃO SE APLICA": "#95a5a6",
-    }
     status_df["Cor"] = status_df["Status Documento"].map(cor_status).fillna("#bdc3c7")
 
     fig_status = px.bar(
@@ -473,18 +479,10 @@ with col_e:
         text="Quantidade",
         title="Documentos por Responsável e Status",
         category_orders={"Responsável da Atividade": list(ordem_resp)},
-        color_discrete_map={
-            "CERTIFICADO": "#2ecc71",
-            "APROVAÇÃO 01": "#3498db",
-            "REVISÃO FINAL": "#f39c12",
-            "REVISÃO": "#e67e22",
-            "EMISSÃO FINAL": "#9b59b6",
-            "CANCELADO": "#e74c3c",
-            "NÃO SE APLICA": "#95a5a6",
-        },
+        color_discrete_map=cor_status,
     )
     fig_resp.update_layout(barmode="stack", height=450, legend_title="Status")
-    fig_resp.update_traces(textposition="inside")
+    fig_resp.update_traces(textposition="inside", textfont_color="white")
     st.plotly_chart(fig_resp, use_container_width=True)
 
 with col_f:
