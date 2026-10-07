@@ -255,15 +255,19 @@ total_alto_retrabalho = df[df["Revisão"] >= 3].shape[0]
 # Cores bem distintas entre si, principalmente REVISÃO, REVISÃO FINAL e APROVAÇÃO 01.
 
 cor_status = {
-    "CERTIFICADO":   "#2ecc71",  # verde
-    "APROVAÇÃO 01":  "#1f4e9c",  # azul escuro
-    "REVISÃO FINAL": "#00bcd4",  # ciano
-    "REVISÃO":       "#ff9800",  # laranja
-    "EMISSÃO FINAL": "#9b59b6",  # roxo
-    "CANCELADO":     "#e74c3c",  # vermelho
-    "NÃO SE APLICA": "#95a5a6",  # cinza
+    "ELABORAÇÃO":            "#8e44ad",  # roxo
+    "APROVAÇÃO":             "#ff6f00",  # laranja forte
+    "APROVAÇÃO 01":          "#1f4e9c",  # azul escuro
+    "REVISÃO":               "#fdd835",  # amarelo
+    "REVISÃO FINAL":         "#00bcd4",  # ciano
+    "REVISAO FINAL":         "#00bcd4",  # ciano (sem til)
+    "EMISSÃO":               "#7f8c8d",  # cinza
+    "EMISSÃO FINAL":         "#e91e63",  # rosa
+    "VERIFICAÇÃO QUALIDADE": "#795548",  # marrom
+    "CERTIFICADO":           "#2ecc71",  # verde
+    "CANCELADO":             "#e74c3c",  # vermelho
+    "NÃO SE APLICA":         "#bdc3c7",  # cinza claro
 }
-
 
 # ========================================================================================
 # 7. LAYOUT DA PÁGINA — INDICADORES E GRÁFICOS
@@ -483,7 +487,7 @@ with col_e:
     )
     fig_resp.update_layout(barmode="stack", height=450, legend_title="Status")
     fig_resp.update_traces(textposition="inside", textfont_color="white")
-    st.plotly_chart(fig_resp, use_container_width=True)
+    st.plotly_chart(fig_resp, use_container_width=True, theme=None)
 
 with col_f:
     # Top 12 fornecedores por quantidade de documentos
