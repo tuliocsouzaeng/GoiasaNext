@@ -21,20 +21,67 @@ if not st.session_state.get("authenticated", False):
 # 2. IMPORTAÇÃO DOS DADOS (Google Sheets via Service Account)
 # ========================================================================================
 
-GOOGLE_REDE_CREDS = os.getenv("GOOGLE_REDE_CREDS")
+# Mesma planilha (pasta de trabalho), com duas abas
+ID_PLANILHA = "1WaXw_Kljcf1CE9SjcewpZyTfT2oSndy8ZDMyTFMy8N8"
+ABA_ATUAL = "Documentos_Projetos"
+ABA_ANTERIOR = "Documentos_Projetos_Antigo"
 
-# Permite que as credenciais venham como string JSON ou já como dicionário
-origem_creds = GOOGLE_REDE_CREDS
-if isinstance(origem_creds, str):
-    info_autenticacao = json.loads(origem_creds)
-else:
-    info_autenticacao = origem_creds
+OPCOES_SEMANA = ["Semana atual", "Semana anterior"]
 
-# Autentica e lê a aba "Documentos_Projetos"
-gc = gspread.service_account_from_dict(info_autenticacao)
-planilha = gc.open_by_key("1WaXw_Kljcf1CE9SjcewpZyTfT2oSndy8ZDMyTFMy8N8")
-aba = planilha.worksheet("Documentos_Projetos")
-documentos_projetos = pd.DataFrame(aba.get_all_records())
+
+@st.cache_resource
+def get_gspread_client():
+    creds = os.getenv("GOOGLE_REDE_CREDS")
+    # Permite que as credenciais venham como string JSON ou já como dicionário
+    info_autenticacao = json.loads(creds) if isinstance(creds, str) else creds
+    return gspread.service_account_from_dict(info_autenticacao)
+
+
+@st.cache_data(ttl=300)
+def carregar_planilha(semana):
+    gc = get_gspread_client()
+    planilha = gc.open_by_key(ID_PLANILHA)
+    nome_aba = ABA_ATUAL if semana == "Semana atual" else ABA_ANTERIOR
+    aba = planilha.worksheet(nome_aba)
+    return pd.DataFrame(aba.get_all_records())
+
+
+# --- Seletor de semana (altera todo o dashboard) ---
+hoje_real = pd.to_datetime(datetime.today().date())
+
+col_sel, col_ref = st.columns(2)
+with col_sel:
+    semana_selecionada = st.radio(
+        "Período exibido",
+        OPCOES_SEMANA,
+        horizontal=True,
+    )
+
+with col_ref:
+    if semana_selecionada == "Semana anterior":
+        # Os prazos da planilha anterior devem ser avaliados na data em que ela foi
+        # gerada; caso contrário, os atrasos ficariam inflados.
+        data_ref = st.date_input(
+            "Data de referência da planilha anterior",
+            value=(hoje_real - pd.Timedelta(days=7)).date(),
+            format="DD/MM/YYYY",
+        )
+        hoje = pd.to_datetime(data_ref)
+    else:
+        hoje = hoje_real
+
+st.caption(
+    f"Exibindo: **{semana_selecionada}** • data de referência: {hoje.strftime('%d/%m/%Y')}"
+)
+
+try:
+    documentos_projetos = carregar_planilha(semana_selecionada)
+except gspread.WorksheetNotFound:
+    st.error(
+        "Aba não encontrada na planilha. Verifique se os nomes das abas são exatamente "
+        f"'{ABA_ATUAL}' e '{ABA_ANTERIOR}'."
+    )
+    st.stop()
 
 
 # ========================================================================================
@@ -74,7 +121,7 @@ for col in colunas_data:
             documentos_projetos[col], errors="coerce", dayfirst=True
         )
 
-hoje = pd.to_datetime(datetime.today().date())
+# "hoje" já foi definido no seletor de semana (data de referência do período exibido)
 
 # --- Coluna de Status de Prazo ---
 # Documentos encerrados (CERTIFICADO, NÃO SE APLICA, CANCELADO) são excluídos do controle de prazo.
