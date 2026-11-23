@@ -159,12 +159,14 @@ if safra_selecionada:
     paradas_f = paradas_f[paradas_f["SAFRA"].isin(safra_selecionada)]
 if area_selecionada:
     paradas_f = paradas_f[paradas_f["Área / Setor"].isin(area_selecionada)]
-if tipo_selecionado:
-    paradas_f = paradas_f[paradas_f["Tipo de Parada"].isin(tipo_selecionado)]
 if equipamento_selecionado:
     paradas_f = paradas_f[paradas_f["Localização"].isin(equipamento_selecionado)]
 
+# Paradas programadas: respeitam período, safra, área e equipamento (não o filtro de tipo)
 paradas_programadas = paradas_f[paradas_f["Tipo de Parada"] == TIPO_PROGRAMADA]
+
+if tipo_selecionado:
+    paradas_f = paradas_f[paradas_f["Tipo de Parada"].isin(tipo_selecionado)]
 falhas = paradas_f if incluir_programadas else paradas_f[paradas_f["Tipo de Parada"] != TIPO_PROGRAMADA]
 
 
@@ -220,7 +222,7 @@ st.title("MTBF - Mean Time Between Failures")
 l1c1, l1c2, l1c3 = st.columns(3)
 
 # Linha 2
-l2c1, l2c2, l2c3 = st.columns(3)
+l2c1, l2c2, l2c3, l2c4 = st.columns(4)
 
 # Linha 3 em diante
 l3c1 = st.columns(1)[0]
@@ -229,6 +231,7 @@ l5c1 = st.columns(1)[0]
 l6c1 = st.columns(1)[0]
 l7c1, l7c2 = st.columns(2)
 l8c1 = st.columns(1)[0]
+l9c1 = st.columns(1)[0]
 
 # __________________ Visualização das Informações ______________
 
@@ -272,13 +275,17 @@ with l2c1:
 
 with l2c2:
     st.metric("Horas de Parada (falhas)", f"{horas_parada:,.1f} h".replace(",", "."))
-    if len(paradas_programadas) > 0 and not incluir_programadas:
-        st.caption(
-            f"Fora da conta: {len(paradas_programadas)} parada(s) programada(s) "
-            f"({paradas_programadas['DURACAO_H'].sum():.1f} h)"
-        )
+    if incluir_programadas:
+        st.caption("Inclui as paradas programadas.")
 
 with l2c3:
+    st.metric(
+        "Horas de Parada (programada)",
+        f"{paradas_programadas['DURACAO_H'].sum():,.1f} h".replace(",", "."),
+    )
+    st.caption(f"{len(paradas_programadas)} parada(s) programada(s) - detalhes na seção abaixo.")
+
+with l2c4:
     st.metric(
         "Disponibilidade Inerente",
         f"{disponibilidade_inerente:.2f}%" if disponibilidade_inerente is not None else "-",
@@ -417,6 +424,34 @@ with l7c2:
     st.plotly_chart(fig, use_container_width=True)
 
 with l8c1:
+    st.subheader("Paradas Programadas")
+    if paradas_programadas.empty:
+        st.info("Nenhuma parada programada no período e filtros selecionados.")
+    else:
+        pc1, pc2, pc3 = st.columns(3)
+        pc1.metric("Quantidade", len(paradas_programadas))
+        pc2.metric("Horas paradas", f"{paradas_programadas['DURACAO_H'].sum():.1f} h")
+        pc3.metric("Duração média", f"{paradas_programadas['DURACAO_H'].mean():.1f} h")
+
+        tabela_prog = paradas_programadas[
+            ["INICIO", "FIM", "Localização", "Área / Setor", "DURACAO_H", "Descrição da Ocorrência"]
+        ].rename(
+            columns={
+                "INICIO": "Início",
+                "FIM": "Fim",
+                "Localização": "Equipamento",
+                "DURACAO_H": "Duração (h)",
+                "Descrição da Ocorrência": "Descrição",
+            }
+        )
+        tabela_prog["Duração (h)"] = tabela_prog["Duração (h)"].round(2)
+        st.dataframe(tabela_prog, hide_index=True, use_container_width=True)
+        st.caption(
+            "Estas paradas são planejadas e não entram no MTBF, a menos que o filtro "
+            "'Incluir paradas programadas como falha' esteja marcado."
+        )
+
+with l9c1:
     with st.expander("Mais Detalhes - Dados Brutos"):
         st.subheader("Paradas (Falhas) Filtradas")
         st.dataframe(paradas_f, height=400)
