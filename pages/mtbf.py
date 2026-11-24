@@ -16,24 +16,46 @@ if not st.session_state.get("authenticated", False):
 
 # _________________________ Importação dos Dados ______________________________
 # Planilhas no Drive (mesmo padrão do indicadores_manutencao):
-#   - "Paradas_25_26"   -> aba "Paradas_25_26"   (falhas / paradas de moagem)
+#   - "Paradas_25_26"   -> aba "Paradas_25_26"   (falhas / paradas)
 #   - "Disponibilidade" -> aba "Disponibilidade" (dias efetivos de moagem por dia)
-# Para atualizar, basta acrescentar linhas nas planilhas. Cabeçalhos iguais aos CSVs.
+# Para atualizar, basta acrescentar linhas nas planilhas. Cabeçalhos iguais aos arquivos.
 
 PLANILHA_PARADAS = "Paradas_25_26"
 ABA_PARADAS = "Paradas_25_26"
 PLANILHA_DISP = "Disponibilidade"
 ABA_DISP = "Disponibilidade"
 
+TIPO_PROGRAMADA = "PARADA PROGRAMADA"
+TIPOS_EXTERNOS = ["CLIMA", "INCENDIO ACIDENTAL"]  # causas fora do controle da manutenção
 
-@st.cache_resource
-def get_gspread_client():
-    GOOGLE_REDE_CREDS = os.getenv("GOOGLE_REDE_CREDS")
-    if isinstance(GOOGLE_REDE_CREDS, str):
-        info_autenticacao = json.loads(GOOGLE_REDE_CREDS)
-    else:
-        info_autenticacao = GOOGLE_REDE_CREDS
-    return gspread.service_account_from_dict(info_autenticacao)
+
+# _________________________ Funções auxiliares ______________________________
+
+def fmt(valor, casas=1, sufixo=""):
+    """Formata no padrão brasileiro: 8.417,1 h"""
+    if valor is None or pd.isna(valor):
+        return "-"
+    txt = f"{valor:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{txt}{sufixo}"
+
+
+def mostrar(fig):
+    """Gráficos com separadores brasileiros (decimal = vírgula, milhar = ponto)."""
+    fig.update_layout(separators=",.")
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _parse_datetime(serie):
+    """Aceita AAAA-MM-DD[ HH:MM[:SS]] e DD/MM/AAAA[ HH:MM[:SS]] sem trocar dia e mês."""
+    s = serie.astype(str).str.strip()
+    formatos = [
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+        "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
+    ]
+    out = pd.to_datetime(s, format=formatos[0], errors="coerce")
+    for f in formatos[1:]:
+        out = out.fillna(pd.to_datetime(s, format=f, errors="coerce"))
+    return out
 
 
 def _para_float(serie):
@@ -46,21 +68,36 @@ def _para_float(serie):
     return pd.to_numeric(s, errors="coerce")
 
 
+@st.cache_resource
+def get_gspread_client():
+    GOOGLE_REDE_CREDS = os.getenv("GOOGLE_REDE_CREDS")
+    if isinstance(GOOGLE_REDE_CREDS, str):
+        info_autenticacao = json.loads(GOOGLE_REDE_CREDS)
+    else:
+        info_autenticacao = GOOGLE_REDE_CREDS
+    return gspread.service_account_from_dict(info_autenticacao)
+
+
 @st.cache_data(ttl=300)
 def carregar_paradas():
     gc = get_gspread_client()
     aba = gc.open(PLANILHA_PARADAS).worksheet(ABA_PARADAS)
     df = pd.DataFrame(aba.get_all_records())
 
-    df["INICIO"] = pd.to_datetime(df["Início (Data/Hora)"], dayfirst=True, errors="coerce")  # DD/MM/AAAA HH:MM[:SS]
-    df["FIM"] = pd.to_datetime(df["Fim (Data/Hora)"], dayfirst=True, errors="coerce")
+    df["INICIO"] = _parse_datetime(df["Início (Data/Hora)"])
+    df["FIM"] = _parse_datetime(df["Fim (Data/Hora)"])
     df = df.dropna(subset=["INICIO", "FIM"])
 
-    # A duração é recalculada a partir de início/fim: a coluna "Duração (Horas)"
-    # vem com formatos mistos (1,00 / 0.2833 / 34.1670) e não é confiável.
+    for col in ["Localização", "Área / Setor", "Tipo de Parada"]:
+        df[col] = df[col].astype(str).str.strip()
+    df["Tipo de Parada"] = df["Tipo de Parada"].str.upper()
+
+    # A duração é recalculada a partir de início/fim (a coluna "Duração (Horas)"
+    # pode vir arredondada ou com formatos mistos).
     df["DURACAO_H"] = (df["FIM"] - df["INICIO"]).dt.total_seconds() / 3600
     df = df[df["DURACAO_H"] > 0]
     df["DATA_CONVERTIDA"] = df["INICIO"].dt.normalize()
+    df["ANO"] = df["INICIO"].dt.year
     df["MES"] = df["INICIO"].dt.to_period("M").dt.to_timestamp()
     return df.sort_values("INICIO").reset_index(drop=True)
 
@@ -71,15 +108,13 @@ def carregar_disponibilidade():
     aba = gc.open(PLANILHA_DISP).worksheet(ABA_DISP)
     df = pd.DataFrame(aba.get_all_records())
     df.columns = ["Data", "DIAS_MOAGEM"]
-    # Aceita AAAA-MM-DD (CSV) e DD/MM/AAAA (Sheets em pt-BR) sem trocar dia e mês
-    data_iso = pd.to_datetime(df["Data"], format="%Y-%m-%d", errors="coerce")
-    data_br = pd.to_datetime(df["Data"], format="%d/%m/%Y", errors="coerce")
-    df["Data"] = data_iso.fillna(data_br)
+    df["Data"] = _parse_datetime(df["Data"]).dt.normalize()
     df["DIAS_MOAGEM"] = _para_float(df["DIAS_MOAGEM"])
     df = df.dropna(subset=["Data", "DIAS_MOAGEM"])
     # O histórico pode ter blocos repetidos: mantém 1 registro por dia
     df = df.drop_duplicates(subset="Data", keep="last").sort_values("Data")
     df["HORAS_OPERADAS"] = df["DIAS_MOAGEM"] * 24
+    df["ANO"] = df["Data"].dt.year
     df["MES"] = df["Data"].dt.to_period("M").dt.to_timestamp()
     return df.reset_index(drop=True)
 
@@ -101,9 +136,8 @@ disp["SAFRA"] = disp["Data"].apply(classificar_safra)
 
 # "Área / Setor" -> macro-área (antes da barra) para um gráfico mais limpo
 paradas["AREA"] = paradas["Área / Setor"].str.split("/").str[0].str.strip()
-paradas["AREA"] = paradas["AREA"].replace({"UTIL": "UTILIDADES", "PRODUÇAO": "PRODUÇÃO"})
-
-TIPO_PROGRAMADA = "PARADA PROGRAMADA"
+paradas.loc[paradas["AREA"].str.startswith("UTIL"), "AREA"] = "UTILIDADES"
+paradas.loc[paradas["AREA"].str.startswith("PRODU"), "AREA"] = "PRODUÇÃO"
 
 
 # _________________________ Aplicação de Filtros _____________________________
@@ -130,6 +164,9 @@ with st.expander("Abrir Filtros"):
     )
     incluir_programadas = st.checkbox(
         "Incluir paradas programadas como falha", value=False
+    )
+    excluir_externas = st.checkbox(
+        "Excluir paradas externas (clima e incêndio acidental)", value=False
     )
     periodo = st.date_input(
         "Período",
@@ -167,6 +204,9 @@ paradas_programadas = paradas_f[paradas_f["Tipo de Parada"] == TIPO_PROGRAMADA]
 
 if tipo_selecionado:
     paradas_f = paradas_f[paradas_f["Tipo de Parada"].isin(tipo_selecionado)]
+if excluir_externas:
+    paradas_f = paradas_f[~paradas_f["Tipo de Parada"].isin(TIPOS_EXTERNOS)]
+
 falhas = paradas_f if incluir_programadas else paradas_f[paradas_f["Tipo de Parada"] != TIPO_PROGRAMADA]
 
 
@@ -177,9 +217,11 @@ dias_moagem = disp_f["DIAS_MOAGEM"].sum()
 dias_calendario = disp_f["Data"].nunique()
 total_falhas = len(falhas)
 horas_parada = falhas["DURACAO_H"].sum()
+horas_programadas = paradas_programadas["DURACAO_H"].sum()
 
 mtbf = horas_operadas / total_falhas if total_falhas > 0 else None
 mttr = horas_parada / total_falhas if total_falhas > 0 else None
+taxa_falhas = 1 / mtbf if mtbf else None  # lambda (falhas por hora)
 disponibilidade_moagem = dias_moagem / dias_calendario * 100 if dias_calendario > 0 else 0
 disponibilidade_inerente = (
     mtbf / (mtbf + mttr) * 100 if (mtbf is not None and (mtbf + mttr) > 0) else None
@@ -212,6 +254,7 @@ def tabela_mtbf(df_falhas, coluna, nome):
     )
     t["MTBF (h)"] = horas_operadas / t["Falhas"]
     t["MTTR (h)"] = t["Horas_Parada"] / t["Falhas"]
+    t["λ (falhas/h)"] = 1 / t["MTBF (h)"]
     return t.sort_values("Falhas", ascending=False)
 
 
@@ -219,13 +262,14 @@ def tabela_mtbf(df_falhas, coluna, nome):
 st.title("MTBF - Mean Time Between Failures")
 
 # Linha 1
-l1c1, l1c2, l1c3 = st.columns(3)
+l1c1, l1c2, l1c3, l1c4 = st.columns(4)
 
 # Linha 2
 l2c1, l2c2, l2c3, l2c4 = st.columns(4)
 
 # Linha 3 em diante
 l3c1 = st.columns(1)[0]
+l3bc1 = st.columns(1)[0]
 l4c1, l4c2 = st.columns(2)
 l5c1 = st.columns(1)[0]
 l6c1 = st.columns(1)[0]
@@ -236,23 +280,23 @@ l9c1 = st.columns(1)[0]
 # __________________ Visualização das Informações ______________
 
 with l1c1:
-    st.metric("MTBF", f"{mtbf:.2f} h" if mtbf is not None else "-")
+    st.metric("MTBF", fmt(mtbf, 2, " h"))
 
     with st.popover("Como é calculado?"):
         st.write("""
         MTBF = Horas Operadas ÷ Número de Falhas
 
         Horas Operadas = Σ (Dias efetivos de moagem × 24) no período.
-        Fonte: disponibilidade.csv (indústria inteira).
+        Fonte: Disponibilidade (indústria inteira).
 
         Número de Falhas = paradas registradas no período, de acordo com os filtros.
-        Fonte: paradas_25_26.csv. Por padrão, paradas programadas não contam como falha.
+        Fonte: Paradas. Por padrão, paradas programadas não contam como falha.
 
         Quando se filtra por área, tipo ou equipamento, o tempo operado continua sendo o da indústria inteira.
         """)
 
 with l1c2:
-    st.metric("MTTR", f"{mttr:.2f} h" if mttr is not None else "-")
+    st.metric("MTTR", fmt(mttr, 2, " h"))
 
     with st.popover("Como é calculado?"):
         st.write("""
@@ -262,7 +306,20 @@ with l1c2:
         """)
 
 with l1c3:
-    st.metric("Total de Falhas", total_falhas)
+    st.metric("Taxa de Falhas (λ)", fmt(taxa_falhas, 4, " falhas/h"))
+    if taxa_falhas is not None:
+        st.caption(f"≈ {fmt(taxa_falhas * 1000, 1)} falhas a cada 1.000 h operadas")
+
+    with st.popover("Como é calculada?"):
+        st.write("""
+        λ = 1 ÷ MTBF
+
+        Equivale a Número de Falhas ÷ Horas Operadas.
+        Representa a taxa média de falhas por hora de operação.
+        """)
+
+with l1c4:
+    st.metric("Total de Falhas", fmt(total_falhas, 0))
 
     with st.popover("Como é calculado?"):
         st.write("""
@@ -270,27 +327,26 @@ with l1c3:
         """)
 
 with l2c1:
-    st.metric("Horas Operadas", f"{horas_operadas:,.0f} h".replace(",", "."))
-    st.caption(f"{dias_moagem:.1f} dias efetivos de moagem")
+    st.metric("Horas Operadas", fmt(horas_operadas, 0, " h"))
+    st.caption(f"{fmt(dias_moagem, 1)} dias efetivos de moagem")
 
 with l2c2:
-    st.metric("Horas de Parada (falhas)", f"{horas_parada:,.1f} h".replace(",", "."))
+    st.metric("Horas de Parada (falhas)", fmt(horas_parada, 1, " h"))
     if incluir_programadas:
         st.caption("Inclui as paradas programadas.")
+    if excluir_externas:
+        st.caption("Exclui clima e incêndio acidental.")
 
 with l2c3:
-    st.metric(
-        "Horas de Parada (programada)",
-        f"{paradas_programadas['DURACAO_H'].sum():,.1f} h".replace(",", "."),
-    )
+    st.metric("Horas de Parada (programada)", fmt(horas_programadas, 1, " h"))
     st.caption(f"{len(paradas_programadas)} parada(s) programada(s) - detalhes na seção abaixo.")
 
 with l2c4:
     st.metric(
         "Disponibilidade Inerente",
-        f"{disponibilidade_inerente:.2f}%" if disponibilidade_inerente is not None else "-",
+        fmt(disponibilidade_inerente, 2, "%"),
     )
-    st.caption(f"Efetividade de moagem no período: {disponibilidade_moagem:.1f}%")
+    st.caption(f"Efetividade de moagem no período: {fmt(disponibilidade_moagem, 1)}%")
 
     with st.popover("Como é calculada?"):
         st.write("""
@@ -306,7 +362,7 @@ with l3c1:
         go.Scatter(x=mensal["Mês"], y=mensal["MTBF"], name="MTBF (h)", mode="lines+markers")
     )
     if mtbf is not None:
-        fig.add_hline(y=mtbf, line_dash="dash", annotation_text=f"MTBF do período: {mtbf:.1f} h")
+        fig.add_hline(y=mtbf, line_dash="dash", annotation_text=f"MTBF do período: {fmt(mtbf, 1)} h")
     fig.update_layout(
         title="Evolução Mensal do MTBF",
         xaxis_title="Mês",
@@ -314,7 +370,38 @@ with l3c1:
         yaxis2=dict(title="Nº de Falhas", overlaying="y", side="right"),
         legend=dict(orientation="h"),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    mostrar(fig)
+
+with l3bc1:
+    if falhas.empty:
+        st.info("Sem paradas para os filtros selecionados.")
+    else:
+        horas_ano_tipo = (
+            falhas.groupby(["ANO", "Tipo de Parada"])["DURACAO_H"].sum().reset_index()
+        )
+        total_ano = falhas.groupby("ANO")["DURACAO_H"].sum().reset_index()
+        fig = px.bar(
+            horas_ano_tipo,
+            x="ANO",
+            y="DURACAO_H",
+            color="Tipo de Parada",
+            title="Horas de Parada por Ano",
+            labels={"ANO": "Ano", "DURACAO_H": "Horas de parada (h)"},
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=total_ano["ANO"],
+                y=total_ano["DURACAO_H"],
+                mode="text",
+                text=[fmt(v, 0) for v in total_ano["DURACAO_H"]],
+                textposition="top center",
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+        fig.update_xaxes(type="category")
+        fig.update_layout(yaxis_title="Horas de parada (h)", legend=dict(orientation="h"))
+        mostrar(fig)
 
 with l4c1:
     fig = px.bar(
@@ -326,7 +413,7 @@ with l4c1:
     )
     fig.update_traces(textposition="outside")
     fig.update_layout(yaxis_title="MTTR (h)")
-    st.plotly_chart(fig, use_container_width=True)
+    mostrar(fig)
 
 with l4c2:
     # Comparativo entre safras (respeita período e demais filtros)
@@ -346,7 +433,7 @@ with l4c2:
             title="MTBF por Safra",
         )
         fig.update_traces(textposition="outside")
-        st.plotly_chart(fig, use_container_width=True)
+        mostrar(fig)
 
 with l5c1:
     t_area = tabela_mtbf(falhas, "AREA", "Área")
@@ -359,7 +446,7 @@ with l5c1:
         title="Falhas por Área",
     )
     fig.update_traces(textposition="outside")
-    st.plotly_chart(fig, use_container_width=True)
+    mostrar(fig)
 
 with l6c1:
     # Pareto por equipamento (horas de parada)
@@ -397,7 +484,7 @@ with l6c1:
         yaxis2=dict(title="Acumulado (%)", overlaying="y", side="right", range=[0, 105]),
         legend=dict(orientation="h"),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    mostrar(fig)
 
 with l7c1:
     t_tipo = tabela_mtbf(falhas, "Tipo de Parada", "Tipo de Parada")
@@ -410,7 +497,7 @@ with l7c1:
         title="MTBF por Tipo de Parada (h)",
     )
     fig.update_traces(textposition="outside")
-    st.plotly_chart(fig, use_container_width=True)
+    mostrar(fig)
 
 with l7c2:
     fig = px.histogram(
@@ -421,7 +508,7 @@ with l7c2:
         labels={"DURACAO_H": "Duração (h)"},
     )
     fig.update_layout(yaxis_title="Quantidade de paradas")
-    st.plotly_chart(fig, use_container_width=True)
+    mostrar(fig)
 
 with l8c1:
     st.subheader("Paradas Programadas")
@@ -430,8 +517,8 @@ with l8c1:
     else:
         pc1, pc2, pc3 = st.columns(3)
         pc1.metric("Quantidade", len(paradas_programadas))
-        pc2.metric("Horas paradas", f"{paradas_programadas['DURACAO_H'].sum():.1f} h")
-        pc3.metric("Duração média", f"{paradas_programadas['DURACAO_H'].mean():.1f} h")
+        pc2.metric("Horas paradas", fmt(horas_programadas, 1, " h"))
+        pc3.metric("Duração média", fmt(paradas_programadas["DURACAO_H"].mean(), 1, " h"))
 
         tabela_prog = paradas_programadas[
             ["INICIO", "FIM", "Localização", "Área / Setor", "DURACAO_H", "Descrição da Ocorrência"]
