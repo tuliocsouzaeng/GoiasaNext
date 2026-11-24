@@ -27,6 +27,7 @@ ABA_DISP = "Disponibilidade"
 
 TIPO_PROGRAMADA = "PARADA PROGRAMADA"
 TIPOS_EXTERNOS = ["CLIMA", "INCENDIO ACIDENTAL"]  # causas fora do controle da manutenção
+LOCAIS_EXTERNOS = ["FRENTE DE COLHEITA"]  # equipamentos fora do escopo da indústria
 
 
 # _________________________ Funções auxiliares ______________________________
@@ -166,7 +167,7 @@ with st.expander("Abrir Filtros"):
         "Incluir paradas programadas como falha", value=False
     )
     excluir_externas = st.checkbox(
-        "Excluir paradas externas (clima e incêndio acidental)", value=False
+        "Excluir paradas externas (clima, incêndio acidental e Frente de Colheita)", value=False
     )
     periodo = st.date_input(
         "Período",
@@ -205,7 +206,10 @@ paradas_programadas = paradas_f[paradas_f["Tipo de Parada"] == TIPO_PROGRAMADA]
 if tipo_selecionado:
     paradas_f = paradas_f[paradas_f["Tipo de Parada"].isin(tipo_selecionado)]
 if excluir_externas:
-    paradas_f = paradas_f[~paradas_f["Tipo de Parada"].isin(TIPOS_EXTERNOS)]
+    paradas_f = paradas_f[
+        ~paradas_f["Tipo de Parada"].isin(TIPOS_EXTERNOS)
+        & ~paradas_f["Localização"].str.upper().isin(LOCAIS_EXTERNOS)
+    ]
 
 falhas = paradas_f if incluir_programadas else paradas_f[paradas_f["Tipo de Parada"] != TIPO_PROGRAMADA]
 
@@ -335,7 +339,7 @@ with l2c2:
     if incluir_programadas:
         st.caption("Inclui as paradas programadas.")
     if excluir_externas:
-        st.caption("Exclui clima e incêndio acidental.")
+        st.caption("Exclui clima, incêndio acidental e Frente de Colheita.")
 
 with l2c3:
     st.metric("Horas de Parada (programada)", fmt(horas_programadas, 1, " h"))
@@ -376,31 +380,34 @@ with l3bc1:
     if falhas.empty:
         st.info("Sem paradas para os filtros selecionados.")
     else:
-        horas_ano_tipo = (
-            falhas.groupby(["ANO", "Tipo de Parada"])["DURACAO_H"].sum().reset_index()
-        )
         total_ano = falhas.groupby("ANO")["DURACAO_H"].sum().reset_index()
+
+        # Detalhamento por tipo de parada, mostrado ao passar o mouse sobre a barra
+        def detalhe_ano(ano):
+            g = (
+                falhas[falhas["ANO"] == ano]
+                .groupby("Tipo de Parada")["DURACAO_H"]
+                .sum()
+                .sort_values(ascending=False)
+            )
+            return "<br>".join(f"{tipo}: {fmt(h, 1)} h" for tipo, h in g.items())
+
+        total_ano["Detalhe"] = total_ano["ANO"].apply(detalhe_ano)
         fig = px.bar(
-            horas_ano_tipo,
+            total_ano,
             x="ANO",
             y="DURACAO_H",
-            color="Tipo de Parada",
+            text=[fmt(v, 0) for v in total_ano["DURACAO_H"]],
+            custom_data=["Detalhe"],
             title="Horas de Parada por Ano",
             labels={"ANO": "Ano", "DURACAO_H": "Horas de parada (h)"},
         )
-        fig.add_trace(
-            go.Scatter(
-                x=total_ano["ANO"],
-                y=total_ano["DURACAO_H"],
-                mode="text",
-                text=[fmt(v, 0) for v in total_ano["DURACAO_H"]],
-                textposition="top center",
-                showlegend=False,
-                hoverinfo="skip",
-            )
+        fig.update_traces(
+            textposition="outside",
+            hovertemplate="<b>%{x}</b><br>Total: %{y:,.1f} h<br><br>%{customdata[0]}<extra></extra>",
         )
         fig.update_xaxes(type="category")
-        fig.update_layout(yaxis_title="Horas de parada (h)", legend=dict(orientation="h"))
+        fig.update_layout(yaxis_title="Horas de parada (h)")
         mostrar(fig)
 
 with l4c1:
