@@ -28,6 +28,7 @@ ABA_DISP = "Disponibilidade"
 TIPO_PROGRAMADA = "PARADA PROGRAMADA"
 TIPOS_EXTERNOS = ["CLIMA", "INCENDIO ACIDENTAL"]  # causas fora do controle da manutenção
 LOCAIS_EXTERNOS = ["FRENTE DE COLHEITA"]  # equipamentos fora do escopo da indústria
+AREAS_EXTERNAS = ["AGRÍCOLA"]  # áreas fora do escopo da indústria (macro-área, antes da barra)
 
 
 # _________________________ Funções auxiliares ______________________________
@@ -167,7 +168,7 @@ with st.expander("Abrir Filtros"):
         "Incluir paradas programadas como falha", value=False
     )
     excluir_externas = st.checkbox(
-        "Excluir paradas externas (clima, incêndio acidental e Frente de Colheita)", value=False
+        "Excluir paradas externas (clima, incêndio acidental, Frente de Colheita e área Agrícola)", value=False
     )
     periodo = st.date_input(
         "Período",
@@ -209,6 +210,7 @@ if excluir_externas:
     paradas_f = paradas_f[
         ~paradas_f["Tipo de Parada"].isin(TIPOS_EXTERNOS)
         & ~paradas_f["Localização"].str.upper().isin(LOCAIS_EXTERNOS)
+        & ~paradas_f["AREA"].str.upper().isin(AREAS_EXTERNAS)
     ]
 
 falhas = paradas_f if incluir_programadas else paradas_f[paradas_f["Tipo de Parada"] != TIPO_PROGRAMADA]
@@ -339,7 +341,7 @@ with l2c2:
     if incluir_programadas:
         st.caption("Inclui as paradas programadas.")
     if excluir_externas:
-        st.caption("Exclui clima, incêndio acidental e Frente de Colheita.")
+        st.caption("Exclui clima, incêndio acidental, Frente de Colheita e área Agrícola.")
 
 with l2c3:
     st.metric("Horas de Parada (programada)", fmt(horas_programadas, 1, " h"))
