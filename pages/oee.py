@@ -20,6 +20,9 @@ REGIMES = {"convencional", "organico"}
 KG_POR_SACA = 50.0                 # 12723 está em sacas de 50 kg
 TOLERANCIA_REGIME = 0.001          # 12723 >= 99,9% do açúcar do dia => dia 100% convencional
 MAX_DIAS_DESVIO_ISOLADO = 2        # até N dias seguidos "convencionais" entre dias orgânicos = desvio
+P_MAX_PLAUSIVEL = 2.0              # dia com P acima de 2x a referência é tratado como erro de dado
+METODO_TCH_EFETIVO = "tch_efetivo"       # P = 12777 / TCH de referência do regime
+METODO_HORAS_MOAGEM = "horas_moagem"     # P = cana / (horas de moagem 10884 x TCH de referência)
 
 CAPACIDADE_TCH_POR_FIBRA = {
     11.00: {"convencional": 712,   "organico": 565.1},
@@ -144,6 +147,8 @@ def calcular_oee_diario(
     meta_ef: float = META_EFICIENCIA_GLOBAL,
     zero_como_nao_informado: bool = False,
     max_dias_desvio_isolado: int = MAX_DIAS_DESVIO_ISOLADO,
+    metodo_desempenho: str = METODO_TCH_EFETIVO,
+    p_max_plausivel: float = P_MAX_PLAUSIVEL,
 ) -> pd.DataFrame:
     """Calcula D, P, Q e OEE de cada dia (com todas as colunas auxiliares para consolidar).
 
@@ -151,10 +156,13 @@ def calcular_oee_diario(
     do regime é tratado como não informado (usa o outro percentual ou deixa o açúcar fora do Q do dia).
     max_dias_desvio_isolado: até N dias seguidos com 12723 = 100% do açúcar, entre dias orgânicos,
     são tratados como açúcar orgânico desviado (0 desativa).
+    metodo_desempenho: "tch_efetivo" (12777 ÷ TCH de referência) ou "horas_moagem" (método anterior).
+    p_max_plausivel: dia com P acima desse valor (x a referência) é descartado do P como erro de dado
+    (0 desativa). Valores acima de 1,0 abaixo desse limite continuam valendo (dias de pico).
     """
     d = base.copy().sort_values("Data").reset_index(drop=True)
     num = ["acucar_total_kg", "pct_acucar_conv", "pct_acucar_org", "acucar_conv_sc", "etanol_m3",
-           "ef_global_pct", "aproveit_moagem_pct", "cana_t", "fibra_pct", "etanol_reclass_l"]
+           "ef_global_pct", "aproveit_moagem_pct", "cana_t", "fibra_pct", "etanol_reclass_l", "tch_efetivo"]
     for c in num:
         d[c] = pd.to_numeric(d[c], errors="coerce")
 
@@ -212,9 +220,20 @@ def calcular_oee_diario(
     d["tempo_moagem_h"] = d["D"] * d["tempo_programado_h"]
 
     # --- Desempenho (pode passar de 1,0 em dias de pico)
-    d["p_valido"] = d["tempo_moagem_h"] > 0
-    d["cap_teorica_t"] = (d["tempo_moagem_h"] * d["tch_ref"]).where(d["p_valido"])
-    d["P"] = (d["cana_t"] / d["cap_teorica_t"]).where(d["p_valido"])
+    # Método padrão: TCH efetivo (12777) comparado com o TCH de referência do regime do dia.
+    # As "horas de desempenho" são as horas implícitas no 12777 (cana ÷ 12777) e servem de peso
+    # na consolidação: P_período = Σ cana ÷ Σ (horas × TCH de referência).
+    if metodo_desempenho == METODO_HORAS_MOAGEM:
+        d["horas_p_h"] = d["tempo_moagem_h"].where(d["tempo_moagem_h"] > 0)
+    else:
+        d["horas_p_h"] = (d["cana_t"] / d["tch_efetivo"]).where((d["tch_efetivo"] > 0) & (d["cana_t"] > 0))
+    cap = d["horas_p_h"] * d["tch_ref"]
+    p_dia = d["cana_t"] / cap
+    d["P_bruto"] = p_dia
+    d["p_descartado"] = (p_dia > p_max_plausivel) if p_max_plausivel and p_max_plausivel > 0 else False
+    d["p_valido"] = d["horas_p_h"].notna() & ~d["p_descartado"]
+    d["cap_teorica_t"] = cap.where(d["p_valido"])
+    d["P"] = p_dia.where(d["p_valido"])
 
     # --- Qualidade: eficiência global
     d["ef_valida"] = d["ef_global_pct"].notna()
@@ -292,8 +311,9 @@ def consolidar(d: pd.DataFrame, meta_ef: float = META_EFICIENCIA_GLOBAL) -> dict
         "ef_global_pond_pct": ef_pond,
         "tempo_programado_h": t_prog, "tempo_moagem_h": t_moagem,
         "cana_t": d["cana_t"].sum(), "cana_p_t": moida_v, "capacidade_teorica_t": cap,
-        "tch_real": moida_v / v["tempo_moagem_h"].sum() if v["tempo_moagem_h"].sum() > 0 else nan,
-        "tch_ref": cap / v["tempo_moagem_h"].sum() if v["tempo_moagem_h"].sum() > 0 else nan,
+        "tch_real": moida_v / v["horas_p_h"].sum() if v["horas_p_h"].sum() > 0 else nan,
+        "tch_ref": cap / v["horas_p_h"].sum() if v["horas_p_h"].sum() > 0 else nan,
+        "dias_p_descartados": int(d["p_descartado"].sum()),
         "acucar_t": kg / 1000.0, "etanol_m3": vol_et,
         "dias": int(len(d)), "dias_p_maior_1": int((d["P"] > 1.0).sum()),
         "dias_conv": int((d["regime_dia"] == "convencional").sum()),
@@ -432,6 +452,14 @@ with st.expander("Abrir Filtros"):
         "Meta de Eficiência Global (referência de Qualidade)",
         min_value=0.50, max_value=1.00, value=META_EFICIENCIA_GLOBAL, step=0.01, format="%.2f",
     )
+    metodo_label = st.selectbox(
+        "Base do Desempenho",
+        ["TCH efetivo (12777) ÷ referência do regime", "Cana moída ÷ (horas de moagem × referência)"],
+    )
+    p_max = st.number_input(
+        "Descartar do Desempenho dias acima de (× a referência; 0 = não descartar)",
+        min_value=0.0, max_value=10.0, value=P_MAX_PLAUSIVEL, step=0.1, format="%.1f",
+    )
     max_desvio = st.number_input(
         "Máx. de dias convencionais isolados entre dias orgânicos tratados como desvio do orgânico",
         min_value=0, max_value=5, value=MAX_DIAS_DESVIO_ISOLADO, step=1,
@@ -448,7 +476,8 @@ else:
 
 # O regime e o TCH são calculados sobre a base completa (herança de regime/fibra entre dias),
 # e só depois filtrados.
-diario = calcular_oee_diario(base, meta_ef, zero_nao_informado, int(max_desvio))
+metodo = METODO_TCH_EFETIVO if metodo_label.startswith("TCH efetivo") else METODO_HORAS_MOAGEM
+diario = calcular_oee_diario(base, meta_ef, zero_nao_informado, int(max_desvio), metodo, p_max)
 diario["SAFRA"] = diario["Data"].apply(classificar_safra)
 diario["MES"] = diario["Data"].dt.to_period("M").dt.to_timestamp()
 diario["SEMANA"] = diario["Data"].dt.to_period("W-SUN").dt.start_time
@@ -524,11 +553,25 @@ with l1c2:
 
 with l1c3:
     st.metric("Desempenho (P)", pct(res["P"]))
-    st.caption(f"TCH real {fmt(res['tch_real'], 1)} t/h × referência {fmt(res['tch_ref'], 1)} t/h")
+    cap_txt = f"TCH real {fmt(res['tch_real'], 1)} t/h × referência {fmt(res['tch_ref'], 1)} t/h"
+    if res["dias_p_descartados"] > 0:
+        cap_txt += f" | {res['dias_p_descartados']} dia(s) descartado(s) como erro de dado"
+    st.caption(cap_txt)
     with st.popover("Como é calculado?"):
-        st.write("""
-        P = Σ cana moída ÷ Σ (horas de moagem × TCH de referência do dia)
+        if metodo == METODO_TCH_EFETIVO:
+            st.write("""
+            P do dia = Cana/hora efetiva (2015 12777) ÷ TCH de referência do regime do dia
 
+            P do período = Σ cana moída ÷ Σ (horas × TCH de referência do dia), com as horas implícitas
+            no 12777 (cana ÷ 12777). Ou seja, é a média dos P diários ponderada pelas horas, não a média simples.
+            """)
+        else:
+            st.write("""
+            P = Σ cana moída ÷ Σ (horas de moagem × TCH de referência do dia)
+
+            Horas de moagem = Aproveitamento do tempo de moagem (2015 10884) × 24 h.
+            """)
+        st.write("""
         O TCH de referência é o máximo teórico por fibra (% cana, arredondada a 0,25 e limitada a 11–16) e por regime.
         Cada dia tem um único regime, definido por 2015 12723 (açúcar convencional, sc 50 kg):
         - 12723 = 0 -> dia orgânico.
@@ -537,8 +580,7 @@ with l1c3:
           o valor de 12723 é açúcar orgânico desviado.
         Dias sem açúcar (só etanol) herdam o regime do dia anterior.
 
-        P pode passar de 100% em dias de pico.
-        Dias com tempo de moagem zero ficam fora do cálculo de P.
+        P pode passar de 100% em dias de pico. Só são descartados dias acima do limite configurado nos filtros.
         """)
 
 with l1c4:
@@ -677,6 +719,14 @@ with l7c1:
             "D", "P", "q_global", "q_acucar", "q_etanol", "q_conformidade", "Q", "OEE",
         ]
         st.dataframe(df[colunas_dia], height=400, hide_index=True)
+
+        st.subheader("Maiores Desempenhos Diários (para conferir dados)")
+        st.dataframe(
+            df.sort_values("P_bruto", ascending=False)[
+                ["Data", "regime_dia", "cana_t", "tch_efetivo", "aproveit_moagem_pct", "tch_ref", "P_bruto", "p_descartado"]
+            ].head(20),
+            hide_index=True,
+        )
 
         st.subheader("Consolidação por Safra")
         st.dataframe(por_safra, height=300, hide_index=True)
