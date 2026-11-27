@@ -18,6 +18,8 @@ TEMPO_PROGRAMADO_H_DIA = 24.0      # horas programadas por dia presente na base
 FIBRA_MIN, FIBRA_MAX, FIBRA_PASSO = 11.00, 16.00, 0.25
 REGIMES = {"convencional", "organico"}
 KG_POR_SACA = 50.0                 # 12723 está em sacas de 50 kg
+TOLERANCIA_REGIME = 0.001          # 12723 >= 99,9% do açúcar do dia => dia 100% convencional
+MAX_DIAS_DESVIO_ISOLADO = 2        # até N dias seguidos "convencionais" entre dias orgânicos = desvio
 
 CAPACIDADE_TCH_POR_FIBRA = {
     11.00: {"convencional": 712,   "organico": 565.1},
@@ -137,22 +139,18 @@ def padronizar_colunas(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def classificar_regime(fracao_org: pd.Series) -> pd.Series:
-    return pd.Series(
-        np.select([fracao_org < 0.001, fracao_org > 0.999], ["convencional", "organico"], default="misto"),
-        index=fracao_org.index,
-    ).where(~fracao_org.isna())
-
-
 def calcular_oee_diario(
     base: pd.DataFrame,
     meta_ef: float = META_EFICIENCIA_GLOBAL,
     zero_como_nao_informado: bool = False,
+    max_dias_desvio_isolado: int = MAX_DIAS_DESVIO_ISOLADO,
 ) -> pd.DataFrame:
     """Calcula D, P, Q e OEE de cada dia (com todas as colunas auxiliares para consolidar).
 
     zero_como_nao_informado: se True, um % de açúcar especificado igual a 0 em dia COM produção
     do regime é tratado como não informado (usa o outro percentual ou deixa o açúcar fora do Q do dia).
+    max_dias_desvio_isolado: até N dias seguidos com 12723 = 100% do açúcar, entre dias orgânicos,
+    são tratados como açúcar orgânico desviado (0 desativa).
     """
     d = base.copy().sort_values("Data").reset_index(drop=True)
     num = ["acucar_total_kg", "pct_acucar_conv", "pct_acucar_org", "acucar_conv_sc", "etanol_m3",
@@ -160,17 +158,48 @@ def calcular_oee_diario(
     for c in num:
         d[c] = pd.to_numeric(d[c], errors="coerce")
 
-    # --- Regime: 12723 = açúcar convencional (sc 50 kg); orgânico = restante do açúcar total
-    d["conv_kg"] = (d["acucar_conv_sc"].fillna(0) * KG_POR_SACA).clip(lower=0)
+    # --- Regime: um dia produz um único regime.
+    # 12723 = açúcar que saiu como CONVENCIONAL (sc de 50 kg).
+    #   * 12723 = 0 com açúcar produzido ................ dia ORGÂNICO
+    #   * 12723 = todo o açúcar do dia .................. dia CONVENCIONAL
+    #   * 12723 > 0, mas menor que o açúcar do dia ...... dia ORGÂNICO; o 12723 é açúcar orgânico
+    #                                                      que sofreu desvio (não pôde ser classificado)
+    #   * 1 a N dias com 12723 = 100% entre dias orgânicos: também desvio (dia ORGÂNICO)
     total_kg = d["acucar_total_kg"].fillna(0).clip(lower=0)
-    d["conv_kg"] = np.minimum(d["conv_kg"], total_kg)
-    d["org_kg"] = (total_kg - d["conv_kg"]).clip(lower=0)
-    d["acucar_kg"] = d["conv_kg"] + d["org_kg"]
-    frac_obs = (d["org_kg"] / d["acucar_kg"]).where(d["acucar_kg"] > 0)
-    # Dias de moagem sem produção de açúcar (só etanol): herda o último regime conhecido
-    d["regime_herdado"] = frac_obs.isna()
-    d["fracao_org"] = frac_obs.ffill().bfill()
-    d["regime_dia"] = classificar_regime(d["fracao_org"])
+    conv_col_kg = np.minimum((d["acucar_conv_sc"].fillna(0) * KG_POR_SACA).clip(lower=0), total_kg)
+    prod = total_kg > 0
+    conv_integral = prod & (conv_col_kg > 0) & (conv_col_kg >= total_kg * (1 - TOLERANCIA_REGIME))
+    reg = pd.Series(index=d.index, dtype=object)
+    reg[prod & conv_integral] = "convencional"
+    reg[prod & ~conv_integral] = "organico"
+
+    d["desvio_isolado"] = False
+    if max_dias_desvio_isolado > 0 and prod.any():
+        pr = pd.DataFrame({"Data": d.loc[prod, "Data"], "reg": reg[prod]})
+        pr["run"] = (pr["reg"] != pr["reg"].shift()).cumsum()
+        n = len(pr)
+        for _, g in pr.groupby("run"):
+            if g["reg"].iloc[0] != "convencional" or len(g) > max_dias_desvio_isolado:
+                continue
+            p0, p1 = pr.index.get_loc(g.index[0]), pr.index.get_loc(g.index[-1])
+            if p0 == 0 or p1 == n - 1:
+                continue
+            ant, prox = pr.iloc[p0 - 1], pr.iloc[p1 + 1]
+            if (ant["reg"] == "organico" and prox["reg"] == "organico"
+                    and (g["Data"].iloc[0] - ant["Data"]).days <= 3
+                    and (prox["Data"] - g["Data"].iloc[-1]).days <= 3):
+                reg.loc[g.index] = "organico"
+                d.loc[g.index, "desvio_isolado"] = True
+
+    # Dias de moagem sem açúcar (só etanol) herdam o último regime conhecido
+    d["regime_herdado"] = reg.isna()
+    reg = reg.ffill().bfill()
+    d["regime_dia"] = reg
+    d["fracao_org"] = (reg == "organico").astype(float)
+    d["acucar_kg"] = total_kg
+    d["conv_kg"] = np.where(reg == "convencional", total_kg, 0.0)
+    d["org_kg"] = np.where(reg == "organico", total_kg, 0.0)
+    d["desvio_org_kg"] = np.where((reg == "organico") & prod, conv_col_kg, 0.0)
 
     # --- Fibra: dias sem medição usam o último valor conhecido
     d["fibra_faltante"] = d["fibra_pct"].isna()
@@ -198,19 +227,19 @@ def calcular_oee_diario(
     q_et = (1.0 - d["reclass_m3"] / d["etanol_m3"]).clip(lower=0)
     d["q_etanol"] = np.where(d["etanol_m3"] > 0, q_et, 1.0)
 
-    # --- Qualidade: açúcar (cada % ponderado pela produção do respectivo regime)
+    # --- Qualidade: açúcar (% especificado do regime do dia: 13416 convencional, 18019 orgânico)
     qc = (d["pct_acucar_conv"] / 100.0).clip(0, 1)
     qo = (d["pct_acucar_org"] / 100.0).clip(0, 1)
     if zero_como_nao_informado:
         qc = qc.where(~((qc == 0) & (d["conv_kg"] > 0)))
         qo = qo.where(~((qo == 0) & (d["org_kg"] > 0)))
-    qc_f, qo_f = qc.fillna(qo), qo.fillna(qc)          # só um percentual informado: usa o disponível
-    termo_c = np.where(d["conv_kg"] > 0, d["conv_kg"] * qc_f, 0.0)
-    termo_o = np.where(d["org_kg"] > 0, d["org_kg"] * qo_f, 0.0)
-    ok = (d["acucar_kg"] > 0) & ~((d["conv_kg"] > 0) & qc_f.isna()) & ~((d["org_kg"] > 0) & qo_f.isna())
+    q_reg = pd.Series(
+        np.where(d["regime_dia"] == "convencional", qc.fillna(qo), qo.fillna(qc)), index=d.index
+    )                                                    # se só um % foi informado, usa o disponível
+    ok = prod & q_reg.notna()
     d["ac_pct_ok"] = ok
-    d["ac_qnum_kg"] = np.where(ok, termo_c + termo_o, 0.0)
-    d["q_acucar"] = (d["ac_qnum_kg"] / d["acucar_kg"]).where(ok)
+    d["ac_qnum_kg"] = np.where(ok, d["acucar_kg"] * q_reg.fillna(0), 0.0)
+    d["q_acucar"] = q_reg.where(ok)
 
     # --- Conformidade: média ponderada pelos volumes (açúcar em t, etanol em m3)
     w_a = np.where(ok, d["acucar_kg"] / 1000.0, 0.0)
@@ -267,6 +296,11 @@ def consolidar(d: pd.DataFrame, meta_ef: float = META_EFICIENCIA_GLOBAL) -> dict
         "tch_ref": cap / v["tempo_moagem_h"].sum() if v["tempo_moagem_h"].sum() > 0 else nan,
         "acucar_t": kg / 1000.0, "etanol_m3": vol_et,
         "dias": int(len(d)), "dias_p_maior_1": int((d["P"] > 1.0).sum()),
+        "dias_conv": int((d["regime_dia"] == "convencional").sum()),
+        "dias_org": int((d["regime_dia"] == "organico").sum()),
+        "dias_desvio_isolado": int(d["desvio_isolado"].sum()),
+        "desvio_org_t": d["desvio_org_kg"].sum() / 1000.0,
+        "acucar_org_t": d["org_kg"].sum() / 1000.0,
     }
 
 
@@ -389,7 +423,7 @@ safras_disponiveis = sorted({classificar_safra(x) for x in base["Data"]})
 with st.expander("Abrir Filtros"):
     safra_selecionada = st.multiselect("Selecione a Safra", safras_disponiveis)
     regime_selecionado = st.selectbox(
-        "Regime de produção (dia)", ["Todos", "Convencional", "Orgânico", "Misto"]
+        "Regime de produção (dia)", ["Todos", "Convencional", "Orgânico"]
     )
     periodo = st.date_input(
         "Período", value=(data_min, data_max), min_value=data_min, max_value=data_max
@@ -397,6 +431,10 @@ with st.expander("Abrir Filtros"):
     meta_ef = st.number_input(
         "Meta de Eficiência Global (referência de Qualidade)",
         min_value=0.50, max_value=1.00, value=META_EFICIENCIA_GLOBAL, step=0.01, format="%.2f",
+    )
+    max_desvio = st.number_input(
+        "Máx. de dias convencionais isolados entre dias orgânicos tratados como desvio do orgânico",
+        min_value=0, max_value=5, value=MAX_DIAS_DESVIO_ISOLADO, step=1,
     )
     zero_nao_informado = st.checkbox(
         "Tratar % de açúcar igual a 0 (com produção) como não informado", value=False
@@ -410,7 +448,7 @@ else:
 
 # O regime e o TCH são calculados sobre a base completa (herança de regime/fibra entre dias),
 # e só depois filtrados.
-diario = calcular_oee_diario(base, meta_ef, zero_nao_informado)
+diario = calcular_oee_diario(base, meta_ef, zero_nao_informado, int(max_desvio))
 diario["SAFRA"] = diario["Data"].apply(classificar_safra)
 diario["MES"] = diario["Data"].dt.to_period("M").dt.to_timestamp()
 diario["SEMANA"] = diario["Data"].dt.to_period("W-SUN").dt.start_time
@@ -419,7 +457,7 @@ df = diario[(diario["Data"] >= pd.Timestamp(data_inicial)) & (diario["Data"] <= 
 if safra_selecionada:
     df = df[df["SAFRA"].isin(safra_selecionada)]
 if regime_selecionado != "Todos":
-    alvo = {"Convencional": "convencional", "Orgânico": "organico", "Misto": "misto"}[regime_selecionado]
+    alvo = {"Convencional": "convencional", "Orgânico": "organico"}[regime_selecionado]
     df = df[df["regime_dia"] == alvo]
 
 
@@ -444,8 +482,7 @@ else:
     evolucao["Período"] = evolucao[chave]
 
 por_safra = consolidar_por(df, "SAFRA", meta_ef)
-por_regime = consolidar_por(df[df["regime_dia"].isin(["convencional", "organico"])], "regime_dia", meta_ef) \
-    if df["regime_dia"].isin(["convencional", "organico"]).any() else pd.DataFrame()
+por_regime = consolidar_por(df, "regime_dia", meta_ef)
 
 COR = {"Disponibilidade": "#636EFA", "Desempenho": "#EF553B", "Qualidade": "#00CC96", "OEE": "#AB63FA"}
 
@@ -455,6 +492,7 @@ st.title("OEE - Overall Equipment Effectiveness")
 
 l1c1, l1c2, l1c3, l1c4 = st.columns(4)
 l2c1, l2c2, l2c3, l2c4 = st.columns(4)
+l2bc1, l2bc2, l2bc3 = st.columns(3)
 l3c1 = st.columns(1)[0]
 l4c1, l4c2 = st.columns(2)
 l5c1 = st.columns(1)[0]
@@ -492,8 +530,12 @@ with l1c3:
         P = Σ cana moída ÷ Σ (horas de moagem × TCH de referência do dia)
 
         O TCH de referência é o máximo teórico por fibra (% cana, arredondada a 0,25 e limitada a 11–16) e por regime.
-        O regime vem de 2015 12723 (açúcar convencional, sc 50 kg): o restante do açúcar total é orgânico.
-        Em dias mistos o TCH é ponderado pela parcela de cada regime.
+        Cada dia tem um único regime, definido por 2015 12723 (açúcar convencional, sc 50 kg):
+        - 12723 = 0 -> dia orgânico.
+        - 12723 igual ao açúcar total do dia -> dia convencional.
+        - 12723 menor que o açúcar total, ou 1 a 2 dias isolados entre dias orgânicos -> dia orgânico;
+          o valor de 12723 é açúcar orgânico desviado.
+        Dias sem açúcar (só etanol) herdam o regime do dia anterior.
 
         P pode passar de 100% em dias de pico.
         Dias com tempo de moagem zero ficam fora do cálculo de P.
@@ -528,6 +570,26 @@ with l2c3:
 with l2c4:
     st.metric("Dias com P acima de 100%", fmt(res["dias_p_maior_1"], 0))
     st.caption("Dias pontuais de pico; contam normalmente no período.")
+
+with l2bc1:
+    st.metric("Dias Convencional / Orgânico", f"{fmt(res['dias_conv'], 0)} / {fmt(res['dias_org'], 0)}")
+    st.caption("Um regime por dia; dias só de etanol herdam o regime anterior.")
+
+with l2bc2:
+    pct_desvio = res["desvio_org_t"] / res["acucar_org_t"] if res["acucar_org_t"] > 0 else None
+    st.metric("Açúcar Orgânico Desviado", fmt(res["desvio_org_t"], 0, " t"))
+    st.caption(f"{pct(pct_desvio)} do açúcar dos dias orgânicos ({fmt(res['acucar_org_t'], 0)} t)")
+    with st.popover("Como é identificado?"):
+        st.write("""
+        Em dia orgânico não se produz convencional. Quando 2015 12723 vem diferente de zero
+        durante a campanha orgânica, esse valor é açúcar orgânico que sofreu desvio e não pôde
+        ser classificado como orgânico. É informado para diagnóstico; a perda de qualidade
+        entra em Q pelo % de açúcar especificado (2015 18019 / 13416).
+        """)
+
+with l2bc3:
+    st.metric("Dias de Desvio Isolado", fmt(res["dias_desvio_isolado"], 0))
+    st.caption("Dias 100% 'convencionais' entre dias orgânicos, tratados como orgânico desviado.")
 
 with l3c1:
     ev = evolucao.copy()
@@ -587,7 +649,7 @@ with l5c1:
 
 with l6c1:
     if por_regime.empty:
-        st.info("Sem dias de regime único na seleção.")
+        st.info("Sem dados de regime na seleção.")
     else:
         pr = por_regime.copy()
         pr["Regime"] = pr["regime_dia"].map({"convencional": "Convencional", "organico": "Orgânico"})
@@ -595,7 +657,7 @@ with l6c1:
         for nome, col in [("Disponibilidade", "D"), ("Desempenho", "P"), ("Qualidade", "Q"), ("OEE", "OEE")]:
             fig.add_bar(x=pr["Regime"], y=pr[col] * 100, name=nome, marker_color=COR[nome],
                         text=[fmt(v * 100, 1) for v in pr[col]], textposition="outside")
-        fig.update_layout(title="OEE por Regime (dias de regime único)", barmode="group",
+        fig.update_layout(title="OEE por Regime", barmode="group",
                           yaxis_title="%", legend=dict(orientation="h"))
         mostrar(fig)
 
@@ -611,7 +673,7 @@ with l7c1:
     with st.expander("Mais Detalhes - Dados Brutos"):
         st.subheader("Cálculo Diário do OEE")
         colunas_dia = [
-            "Data", "regime_dia", "fibra_usada", "tch_ref", "tempo_moagem_h", "cana_t",
+            "Data", "regime_dia", "desvio_org_kg", "fibra_usada", "tch_ref", "tempo_moagem_h", "cana_t",
             "D", "P", "q_global", "q_acucar", "q_etanol", "q_conformidade", "Q", "OEE",
         ]
         st.dataframe(df[colunas_dia], height=400, hide_index=True)
