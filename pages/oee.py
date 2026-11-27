@@ -214,7 +214,7 @@ def calcular_oee_diario(
     d["fibra_usada"] = d["fibra_pct"].ffill().bfill()
     d["tch_ref"] = tch_referencia_vetorizado(d["fibra_usada"], d["fracao_org"])
     d["fibra_grade"] = (np.floor(d["fibra_usada"] / FIBRA_PASSO + 0.5) * FIBRA_PASSO).clip(FIBRA_MIN, FIBRA_MAX)
-    d["fibra_fora_faixa"] = (d["fibra_usada"] < FIBRA_MIN - FIBRA_PASSO / 2) | (d["fibra_usada"] > FIBRA_MAX + FIBRA_PASSO / 2)
+    d["fibra_fora_faixa"] = (d["fibra_pct"] < FIBRA_MIN) | (d["fibra_pct"] > FIBRA_MAX)   # só fibra informada
 
     # --- Disponibilidade
     d["tempo_programado_h"] = TEMPO_PROGRAMADO_H_DIA
@@ -366,10 +366,10 @@ def validar_escalas(diario: pd.DataFrame) -> list:
         if med < 1000 or med > 40000:
             avisos.append(f"Mediana de cana moída por dia = {med:,.0f} t (esperado de 10.000 a 17.000 t). "
                           "Verifique se a coluna 12513 está em toneladas.".replace(",", "."))
-    n_fibra = int((diario["fibra_fora_faixa"] & ~diario["fibra_faltante"]).sum())
+    n_fibra = int(diario["fibra_fora_faixa"].sum())
     if n_fibra > 0:
-        avisos.append(f"{n_fibra} dia(s) com fibra fora de 11% a 16% (o TCH de referência é limitado ao extremo da tabela). "
-                      "Se a fibra do dia deveria estar dentro da faixa, confira a coluna 211.")
+        avisos.append(f"{n_fibra} dia(s) com fibra fora de 11% a 16% (o TCH de referência usa o extremo da tabela). "
+                      "Veja a lista em Mais Detalhes e confira a coluna 211.")
     n_apr = int((diario["aproveit_moagem_pct"] > 100.0001).sum())
     if n_apr > 0:
         avisos.append(f"{n_apr} dia(s) com aproveitamento do tempo de moagem acima de 100% (limitado a 100%).")
@@ -564,7 +564,6 @@ l1c1, l1c2, l1c3, l1c4 = st.columns(4)
 l2c1, l2c2, l2c3, l2c4 = st.columns(4)
 l2bc1, l2bc2, l2bc3 = st.columns(3)
 l3c1 = st.columns(1)[0]
-l4c1 = st.columns(1)[0]
 l4c2 = st.columns(1)[0]
 l5c1 = st.columns(1)[0]
 l6c1, l6c2 = st.columns(2)
@@ -641,7 +640,7 @@ with l2c2:
     st.caption(f"Eficiência global ponderada: {fmt(res['ef_global_pond_pct'], 1)}%")
 
 with l2c3:
-    st.metric("Q açúcar / Q etanol", f"{pct(res['q_acucar'])} / {pct(res['q_etanol'])}")
+    st.metric("Q açúcar | Q etanol", f"{pct(res['q_acucar'])} | {pct(res['q_etanol'])}")
     st.caption(f"{fmt(res['acucar_t'], 0)} t de açúcar e {fmt(res['etanol_m3'], 0)} m³ de etanol")
 
 with l2c4:
@@ -649,7 +648,7 @@ with l2c4:
     st.caption("Dias pontuais de pico; contam normalmente no período.")
 
 with l2bc1:
-    st.metric("Dias Convencional / Orgânico", f"{fmt(res['dias_conv'], 0)} / {fmt(res['dias_org'], 0)}")
+    st.metric("Dias Convencional | Orgânico", f"{fmt(res['dias_conv'], 0)} | {fmt(res['dias_org'], 0)}")
     st.caption("Um regime por dia; dias só de etanol herdam o regime anterior.")
 
 with l2bc2:
@@ -671,26 +670,18 @@ with l2bc3:
 with l3c1:
     ev = evolucao.copy()
     fig = go.Figure()
-    fig.add_bar(
-        x=ev["Período"], y=ev["OEE"] * 100, name="OEE", marker_color=COR["OEE"],
-        text=[fmt(v * 100, 1) for v in ev["OEE"]] if len(ev) <= 31 else None,
-        textposition="outside",
-    )
-    fig.update_layout(title=f"OEE (por {agrupamento.lower()})", yaxis_title="OEE (%)", xaxis_title=agrupamento)
-    fig.update_xaxes(type="category")
-    mostrar(fig)
-
-with l4c1:
-    ps = por_safra.copy()
-    fig = go.Figure()
-    for nome, col in [("Disponibilidade", "D"), ("Desempenho", "P"), ("Qualidade", "Q"), ("OEE", "OEE")]:
+    for nome, col in [("OEE", "OEE"), ("Disponibilidade", "D"), ("Desempenho", "P"), ("Qualidade", "Q")]:
         fig.add_bar(
-            x=ps["SAFRA"], y=ps[col] * 100, name=nome, marker_color=COR[nome],
-            text=[fmt(v * 100, 1) for v in ps[col]], textposition="outside",
+            x=ev["Período"], y=ev[col] * 100, name=nome, marker_color=COR[nome],
+            text=[fmt(v * 100, 1) for v in ev[col]] if len(ev) <= 14 else None,
+            textposition="outside",
+            visible=True if nome == "OEE" else "legendonly",   # demais pilares: clicar na legenda
         )
     fig.update_layout(
-        title="Pilares do OEE por Safra", barmode="group", yaxis_title="%", legend=dict(orientation="h")
+        title=f"Pilares do OEE (por {agrupamento.lower()})", barmode="group",
+        yaxis_title="%", xaxis_title=agrupamento, legend=dict(orientation="h"),
     )
+    fig.update_xaxes(type="category")
     mostrar(fig)
 
 with l4c2:
@@ -749,6 +740,20 @@ with l7c1:
             "D", "P", "q_global", "q_acucar", "q_etanol", "q_conformidade", "Q", "OEE",
         ]
         st.dataframe(df[colunas_dia], height=400, hide_index=True)
+
+        fibra_fora = diario[diario["fibra_fora_faixa"]]
+        st.subheader(f"Dias com Fibra Fora de 11% a 16% ({fmt(len(fibra_fora), 0)})")
+        if fibra_fora.empty:
+            st.info("Nenhum dia com fibra fora da faixa de 11% a 16%.")
+        else:
+            st.caption("Considera toda a base, sem os filtros da página.")
+            st.dataframe(
+                fibra_fora[["Data", "fibra_pct", "fibra_grade", "regime_dia", "tch_ref", "cana_t", "aproveit_moagem_pct"]]
+                .rename(columns={"fibra_pct": "Fibra informada (%)", "fibra_grade": "Fibra usada na tabela (%)",
+                                 "regime_dia": "Regime", "tch_ref": "TCH ref (t/h)", "cana_t": "Cana moída (t)",
+                                 "aproveit_moagem_pct": "Aproveitamento (%)"}),
+                hide_index=True, height=300,
+            )
 
         st.subheader("Auditar o Cálculo de um Dia")
         dia_auditado = st.date_input(
