@@ -495,10 +495,6 @@ with st.expander("Abrir Filtros"):
         "Meta de Eficiência Global (referência de Qualidade)",
         min_value=0.50, max_value=1.00, value=META_EFICIENCIA_GLOBAL, step=0.01, format="%.2f",
     )
-    metodo_label = st.selectbox(
-        "Base do Desempenho",
-        ["Cana moída ÷ (horas de moagem × referência)", "TCH efetivo (12777) ÷ referência do regime"],
-    )
     p_max = st.number_input(
         "Descartar do Desempenho dias acima de (× a referência; 0 = não descartar)",
         min_value=0.0, max_value=10.0, value=P_MAX_PLAUSIVEL, step=0.1, format="%.1f",
@@ -510,7 +506,7 @@ with st.expander("Abrir Filtros"):
     zero_nao_informado = st.checkbox(
         "Tratar % de açúcar igual a 0 (com produção) como não informado", value=False
     )
-    agrupamento = st.selectbox("Agrupar evolução por", ["Mês", "Semana", "Safra", "Dia"], index=0)
+    agrupamento = st.selectbox("Agrupar evolução por", ["Mês", "Semana", "Safra", "Dia"], index=2)
 
 if len(periodo) == 2:
     data_inicial, data_final = periodo
@@ -519,8 +515,7 @@ else:
 
 # O regime e o TCH são calculados sobre a base completa (herança de regime/fibra entre dias),
 # e só depois filtrados.
-metodo = METODO_HORAS_MOAGEM if metodo_label.startswith("Cana moída") else METODO_TCH_EFETIVO
-diario = calcular_oee_diario(base, meta_ef, zero_nao_informado, int(max_desvio), metodo, p_max)
+diario = calcular_oee_diario(base, meta_ef, zero_nao_informado, int(max_desvio), METODO_HORAS_MOAGEM, p_max)
 diario["SAFRA"] = diario["Data"].apply(classificar_safra)
 diario["MES"] = diario["Data"].dt.to_period("M").dt.to_timestamp()
 diario["SEMANA"] = diario["Data"].dt.to_period("W-SUN").dt.start_time
@@ -569,7 +564,8 @@ l1c1, l1c2, l1c3, l1c4 = st.columns(4)
 l2c1, l2c2, l2c3, l2c4 = st.columns(4)
 l2bc1, l2bc2, l2bc3 = st.columns(3)
 l3c1 = st.columns(1)[0]
-l4c1, l4c2 = st.columns(2)
+l4c1 = st.columns(1)[0]
+l4c2 = st.columns(1)[0]
 l5c1 = st.columns(1)[0]
 l6c1, l6c2 = st.columns(2)
 l7c1 = st.columns(1)[0]
@@ -604,19 +600,12 @@ with l1c3:
         cap_txt += f" | {res['dias_p_descartados']} dia(s) descartado(s) como erro de dado"
     st.caption(cap_txt)
     with st.popover("Como é calculado?"):
-        if metodo == METODO_TCH_EFETIVO:
-            st.write("""
-            P do dia = Cana/hora efetiva (2015 12777) ÷ TCH de referência do regime do dia
+        st.write("""
+        P = Σ cana moída ÷ Σ (horas de moagem × TCH de referência do dia)
 
-            P do período = Σ cana moída ÷ Σ (horas × TCH de referência do dia), com as horas implícitas
-            no 12777 (cana ÷ 12777). Ou seja, é a média dos P diários ponderada pelas horas, não a média simples.
-            """)
-        else:
-            st.write("""
-            P = Σ cana moída ÷ Σ (horas de moagem × TCH de referência do dia)
-
-            Horas de moagem = Aproveitamento do tempo de moagem (2015 10884) × 24 h.
-            """)
+        Horas de moagem = Aproveitamento do tempo de moagem (2015 10884) × 24 h.
+        Dias com tempo de moagem zero ficam fora do cálculo de P.
+        """)
         st.write("""
         O TCH de referência é o máximo teórico por fibra (% cana, arredondada a 0,25 e limitada a 11–16) e por regime.
         Cada dia tem um único regime, definido por 2015 12723 (açúcar convencional, sc 50 kg):
@@ -682,19 +671,12 @@ with l2bc3:
 with l3c1:
     ev = evolucao.copy()
     fig = go.Figure()
-    for nome, col in [("Disponibilidade", "D"), ("Desempenho", "P"), ("Qualidade", "Q"), ("OEE", "OEE")]:
-        fig.add_trace(
-            go.Scatter(
-                x=ev["Período"], y=ev[col] * 100, name=nome,
-                mode="lines+markers" if agrupamento != "Dia" else "lines",
-                line=dict(color=COR[nome], width=3 if nome == "OEE" else 2),
-            )
-        )
-    fig.add_hline(y=100, line_dash="dot", line_color="gray")
-    fig.update_layout(
-        title=f"Evolução dos Pilares do OEE (por {agrupamento.lower()})",
-        yaxis_title="%", xaxis_title=agrupamento, legend=dict(orientation="h"),
+    fig.add_bar(
+        x=ev["Período"], y=ev["OEE"] * 100, name="OEE", marker_color=COR["OEE"],
+        text=[fmt(v * 100, 1) for v in ev["OEE"]] if len(ev) <= 31 else None,
+        textposition="outside",
     )
+    fig.update_layout(title=f"OEE (por {agrupamento.lower()})", yaxis_title="OEE (%)", xaxis_title=agrupamento)
     fig.update_xaxes(type="category")
     mostrar(fig)
 
@@ -727,10 +709,12 @@ with l5c1:
     fig = go.Figure()
     for nome, col, cor in [("Q global", "q_global", "#00CC96"), ("Q açúcar", "q_acucar", "#FFA15A"),
                            ("Q etanol", "q_etanol", "#19D3F3"), ("Q conformidade", "q_conformidade", "#AB63FA")]:
-        fig.add_trace(go.Scatter(x=evolucao["Período"], y=evolucao[col] * 100, name=nome,
-                                 mode="lines+markers" if agrupamento != "Dia" else "lines",
-                                 line=dict(color=cor)))
-    fig.update_layout(title=f"Componentes da Qualidade (por {agrupamento.lower()})",
+        fig.add_bar(
+            x=evolucao["Período"], y=evolucao[col] * 100, name=nome, marker_color=cor,
+            text=[fmt(v * 100, 1) for v in evolucao[col]] if len(evolucao) <= 14 else None,
+            textposition="outside",
+        )
+    fig.update_layout(title=f"Componentes da Qualidade (por {agrupamento.lower()})", barmode="group",
                       yaxis_title="%", legend=dict(orientation="h"))
     fig.update_xaxes(type="category")
     mostrar(fig)
