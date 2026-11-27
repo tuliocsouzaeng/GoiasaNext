@@ -213,6 +213,8 @@ def calcular_oee_diario(
     d["fibra_faltante"] = d["fibra_pct"].isna()
     d["fibra_usada"] = d["fibra_pct"].ffill().bfill()
     d["tch_ref"] = tch_referencia_vetorizado(d["fibra_usada"], d["fracao_org"])
+    d["fibra_grade"] = (np.floor(d["fibra_usada"] / FIBRA_PASSO + 0.5) * FIBRA_PASSO).clip(FIBRA_MIN, FIBRA_MAX)
+    d["fibra_fora_faixa"] = (d["fibra_usada"] < FIBRA_MIN - FIBRA_PASSO / 2) | (d["fibra_usada"] > FIBRA_MAX + FIBRA_PASSO / 2)
 
     # --- Disponibilidade
     d["tempo_programado_h"] = TEMPO_PROGRAMADO_H_DIA
@@ -333,6 +335,47 @@ def consolidar_por(d: pd.DataFrame, chave: str, meta_ef: float = META_EFICIENCIA
     return pd.DataFrame(linhas)
 
 
+COLUNAS_PERCENTUAIS = ["aproveit_moagem_pct", "ef_global_pct", "pct_acucar_conv", "pct_acucar_org", "fibra_pct"]
+
+
+def normalizar_escalas(base: pd.DataFrame):
+    """Detecta colunas em % que vieram como fração (0 a 1, ex.: célula formatada como porcentagem
+    no Google Sheets devolve 0,25 para 25%) e converte para %. Retorna (base, avisos)."""
+    b = base.copy()
+    avisos = []
+    for col in COLUNAS_PERCENTUAIS:
+        if col not in b.columns:
+            continue
+        x = pd.to_numeric(b[col], errors="coerce")
+        v = x.dropna()
+        # Percentil 95 (e não o máximo): uma coluna em % real tem valores bem acima de 1, e um
+        # lançamento absurdo isolado não impede a detecção de uma coluna inteira em fração.
+        if len(v) >= 20 and 0 < v.abs().quantile(0.95) <= 1.0 + 1e-9:
+            b[col] = x * 100.0
+            avisos.append(f"A coluna '{col}' estava em fração (0 a 1) e foi convertida para %. "
+                          "Confira o formato das células na planilha.")
+    return b, avisos
+
+
+def validar_escalas(diario: pd.DataFrame) -> list:
+    """Avisos de dados fora de escala que distorcem o cálculo."""
+    avisos = []
+    com_cana = diario[diario["cana_t"] > 0]
+    if len(com_cana) >= 20:
+        med = com_cana["cana_t"].median()
+        if med < 1000 or med > 40000:
+            avisos.append(f"Mediana de cana moída por dia = {med:,.0f} t (esperado de 10.000 a 17.000 t). "
+                          "Verifique se a coluna 12513 está em toneladas.".replace(",", "."))
+    n_fibra = int((diario["fibra_fora_faixa"] & ~diario["fibra_faltante"]).sum())
+    if n_fibra > 0:
+        avisos.append(f"{n_fibra} dia(s) com fibra fora de 11% a 16% (o TCH de referência é limitado ao extremo da tabela). "
+                      "Se a fibra do dia deveria estar dentro da faixa, confira a coluna 211.")
+    n_apr = int((diario["aproveit_moagem_pct"] > 100.0001).sum())
+    if n_apr > 0:
+        avisos.append(f"{n_apr} dia(s) com aproveitamento do tempo de moagem acima de 100% (limitado a 100%).")
+    return avisos
+
+
 def classificar_safra(data) -> str:
     """Safra começa em abril. Ex.: abr/2025 a mar/2026 = Safra 25."""
     ano = data.year if data.month >= 4 else data.year - 1
@@ -432,7 +475,7 @@ def carregar_desempenho():
     return df
 
 
-base = carregar_desempenho()
+base, avisos_escala = normalizar_escalas(carregar_desempenho())
 
 
 # _________________________ Aplicação de Filtros _____________________________
@@ -454,7 +497,7 @@ with st.expander("Abrir Filtros"):
     )
     metodo_label = st.selectbox(
         "Base do Desempenho",
-        ["TCH efetivo (12777) ÷ referência do regime", "Cana moída ÷ (horas de moagem × referência)"],
+        ["Cana moída ÷ (horas de moagem × referência)", "TCH efetivo (12777) ÷ referência do regime"],
     )
     p_max = st.number_input(
         "Descartar do Desempenho dias acima de (× a referência; 0 = não descartar)",
@@ -476,7 +519,7 @@ else:
 
 # O regime e o TCH são calculados sobre a base completa (herança de regime/fibra entre dias),
 # e só depois filtrados.
-metodo = METODO_TCH_EFETIVO if metodo_label.startswith("TCH efetivo") else METODO_HORAS_MOAGEM
+metodo = METODO_HORAS_MOAGEM if metodo_label.startswith("Cana moída") else METODO_TCH_EFETIVO
 diario = calcular_oee_diario(base, meta_ef, zero_nao_informado, int(max_desvio), metodo, p_max)
 diario["SAFRA"] = diario["Data"].apply(classificar_safra)
 diario["MES"] = diario["Data"].dt.to_period("M").dt.to_timestamp()
@@ -518,6 +561,9 @@ COR = {"Disponibilidade": "#636EFA", "Desempenho": "#EF553B", "Qualidade": "#00C
 
 # _________________ Criação da Página ___________________________
 st.title("OEE - Overall Equipment Effectiveness")
+
+for aviso in avisos_escala + validar_escalas(diario):
+    st.warning(aviso)
 
 l1c1, l1c2, l1c3, l1c4 = st.columns(4)
 l2c1, l2c2, l2c3, l2c4 = st.columns(4)
@@ -719,6 +765,31 @@ with l7c1:
             "D", "P", "q_global", "q_acucar", "q_etanol", "q_conformidade", "Q", "OEE",
         ]
         st.dataframe(df[colunas_dia], height=400, hide_index=True)
+
+        st.subheader("Auditar o Cálculo de um Dia")
+        dia_auditado = st.date_input(
+            "Dia", value=df["Data"].max().date(), min_value=data_min, max_value=data_max, key="dia_auditoria"
+        )
+        linha = diario[diario["Data"] == pd.Timestamp(dia_auditado)]
+        if linha.empty:
+            st.info("Dia sem registro na base.")
+        else:
+            x = linha.iloc[0]
+            passos = [
+                ("Cana moída (t)", fmt(x["cana_t"], 2)),
+                ("Aproveitamento do tempo de moagem 10884 (%)", fmt(x["aproveit_moagem_pct"], 2)),
+                ("Disponibilidade D do dia", fmt(x["D"], 4)),
+                ("Horas de moagem = D × 24 (h)", fmt(x["tempo_moagem_h"], 3)),
+                ("Regime do dia", str(x["regime_dia"])),
+                ("Fibra informada 211 (%)", fmt(x["fibra_pct"], 4)),
+                ("Fibra usada / arredondada a 0,25 e limitada a 11-16 (%)", f"{fmt(x['fibra_usada'], 4)} / {fmt(x['fibra_grade'], 2)}"),
+                ("TCH de referência (t/h)", fmt(x["tch_ref"], 1)),
+                ("Horas usadas no desempenho (h)", fmt(x["horas_p_h"], 3)),
+                ("Capacidade teórica = horas × TCH ref (t)", fmt(x["horas_p_h"] * x["tch_ref"], 1)),
+                ("P do dia = cana ÷ capacidade", fmt(x["P_bruto"], 4)),
+                ("Descartado como erro de dado?", "Sim" if x["p_descartado"] else "Não"),
+            ]
+            st.table(pd.DataFrame(passos, columns=["Passo", "Valor"]).set_index("Passo"))
 
         st.subheader("Maiores Desempenhos Diários (para conferir dados)")
         st.dataframe(
